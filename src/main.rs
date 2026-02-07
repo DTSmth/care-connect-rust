@@ -1,8 +1,12 @@
+mod models;
+mod handlers;
+
 use axum::{routing::get, Json, Router};
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use tower_http::cors::CorsLayer;
 use serde::Serialize;
+use crate::handlers::user_handler;
 
 #[derive(Serialize)]
 struct Status {
@@ -28,6 +32,8 @@ async fn main() {
     let app = Router::new()
         .route("/", get(hello_world))
         .route("/health", get(health_check))
+        .route("/users", get(user_handler::get_all_users))
+        .route("/users/:id", get(user_handler::get_user_by_id))
         .layer(cors)
         .with_state(pool);
 
