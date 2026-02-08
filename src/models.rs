@@ -25,3 +25,25 @@ pub struct Client {
     pub zipcode: String,
     pub phone_number: String,
 }
+
+#[derive(Serialize, Deserialize, FromRow)]
+pub struct Shift {
+    pub shift_id: i32,
+    pub client_id: i32,
+    pub service_id: i32,
+    pub total_hours: i8,
+    pub zipcode: i16,
+    pub available: bool,
+}
+
+#[derive(Serialize, Deserialize, FromRow)]
+pub struct Service {
+    services_id: i32,
+    service_name: String,
+}
+
+#[derive(Serialize, Deserialize, FromRow)]
+pub struct Client_Service {
+    client_id: i32,
+    service_id: i32,
+}
