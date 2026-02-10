@@ -13,6 +13,14 @@ pub struct User {
     pub short_bio: Option<String>,
 }
 
+#[derive(Deserialize)] // We only need to turn JSON -> Struct
+pub struct CreateUserRequest {
+    pub username: String,
+    pub password_hash: String,
+    pub role: String,
+    pub display_name: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, FromRow)]
 pub struct Client {
     pub client_id: i32,
@@ -43,7 +51,7 @@ pub struct Service {
 }
 
 #[derive(Serialize, Deserialize, FromRow)]
-pub struct Client_Service {
+pub struct ClientService {
     client_id: i32,
     service_id: i32,
 }
