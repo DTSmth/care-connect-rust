@@ -7,7 +7,7 @@ use std::net::SocketAddr;
 use axum::routing::post;
 use tower_http::cors::CorsLayer;
 use serde::Serialize;
-use crate::handlers::user_handler;
+use crate::handlers::{client_handler, user_handler};
 
 #[derive(Serialize)]
 struct Status {
@@ -36,6 +36,7 @@ async fn main() {
         .route("/users", get(user_handler::get_all_users))
         .route("/users/:id", get(user_handler::get_user_by_id))
         .route("/users", post(user_handler::create_user))
+        .route("/clients", get(client_handler::get_all_clients))
         .layer(cors)
         .with_state(pool);
 

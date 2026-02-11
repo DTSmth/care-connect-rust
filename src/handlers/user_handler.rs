@@ -1,6 +1,6 @@
 use axum::{extract::{State, Path}, http::StatusCode, Json};
 use sqlx::PgPool;
-use crate::models::{CreateUserRequest, User}; // Import the struct from models.rs
+use crate::models::{CreateUserRequest, User};
 
 pub async fn get_all_users(
     State(pool): State<PgPool>,
