@@ -4,7 +4,7 @@ mod handlers;
 use axum::{routing::get, Json, Router};
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
-use axum::routing::post;
+use axum::routing::{delete, post, put};
 use tower_http::cors::CorsLayer;
 use serde::Serialize;
 use crate::handlers::{client_handler, user_handler};
@@ -36,8 +36,11 @@ async fn main() {
         .route("/users", get(user_handler::get_all_users))
         .route("/users/:id", get(user_handler::get_user_by_id))
         .route("/users", post(user_handler::create_user))
-        .route("/clients", get(client_handler::get_all_clients))
+        .route("/clients", get(client_handler::get_clients))
+        .route("/clients", post(client_handler::create_client))
         .route("/clients/:id", get(client_handler::get_client_by_id))
+        .route("/clients/:id", put(client_handler::update_client))
+        .route("/clients/:id", delete(client_handler::delete_client))
         .layer(cors)
         .with_state(pool);
 
