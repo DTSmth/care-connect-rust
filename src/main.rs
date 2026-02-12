@@ -37,6 +37,7 @@ async fn main() {
         .route("/users/:id", get(user_handler::get_user_by_id))
         .route("/users", post(user_handler::create_user))
         .route("/clients", get(client_handler::get_all_clients))
+        .route("/clients/:id", get(client_handler::get_client_by_id))
         .layer(cors)
         .with_state(pool);
 

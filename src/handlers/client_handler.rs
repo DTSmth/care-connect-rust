@@ -15,3 +15,16 @@ pub async fn get_all_clients(
 
     Ok(Json(clients))
 }
+
+pub async fn get_client_by_id(
+    State(pool): State<PgPool>,
+    Path(id): Path<i32>,
+) -> Result<Json<Client>, StatusCode> {
+    let client = sqlx::query_as::<_, Client>("Select * FROM client WHERE id = $1")
+        .bind(id)
+        .fetch_one((&pool))
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    Ok(Json(client))
+}
