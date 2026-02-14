@@ -7,7 +7,7 @@ use std::net::SocketAddr;
 use axum::routing::{delete, post, put};
 use tower_http::cors::CorsLayer;
 use serde::Serialize;
-use crate::handlers::{client_handler, user_handler};
+use crate::handlers::{client_handler, shift_handler, user_handler};
 
 #[derive(Serialize)]
 struct Status {
@@ -41,6 +41,11 @@ async fn main() {
         .route("/clients/:id", get(client_handler::get_client_by_id))
         .route("/clients/:id", put(client_handler::update_client))
         .route("/clients/:id", delete(client_handler::delete_client))
+        .route("/shifts", get(shift_handler::get_shifts))
+        .route("/shifts", post(shift_handler::create_shift))
+        .route("/shifts/:id", get(shift_handler::get_shift_by_id))
+        .route("/shifts/:id", put(shift_handler::update_shift))
+        .route("/shifts/:id", delete(shift_handler::delete_shift))
         .layer(cors)
         .with_state(pool);
 

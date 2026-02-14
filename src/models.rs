@@ -37,6 +37,13 @@ pub struct Client {
 }
 
 #[derive(Deserialize)]
+pub struct ClientFilters {
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+    pub zipcode: Option<String>,
+}
+
+#[derive(Deserialize)]
 pub struct CreateClientRequest {
     pub first_name: String,
     pub last_name: String,
@@ -69,6 +76,15 @@ pub struct Shift {
     pub total_hours: i8,
     pub zipcode: i32,
     pub available: bool,
+}
+#[derive(serde::Deserialize)]
+pub struct ShiftFilters {
+    pub client_id: Option<i32>,
+    pub service_id: Option<i32>,
+    pub zipcode: Option<i32>,
+    pub available: Option<bool>,
+    pub min_hours: Option<i8>,
+    pub max_hours: Option<i8>,
 }
 
 #[derive(Serialize, Deserialize, FromRow)]

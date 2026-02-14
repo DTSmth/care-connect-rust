@@ -5,15 +5,8 @@ use axum::{
 };
 use sqlx::PgPool;
 use serde::Deserialize;
-use crate::models::{Client, UpdateClientRequest};
+use crate::models::{Client, ClientFilters, UpdateClientRequest};
 
-// This replaces your @RequestParam fields
-#[derive(Deserialize)]
-pub struct ClientFilters {
-    pub first_name: Option<String>,
-    pub last_name: Option<String>,
-    pub zipcode: Option<String>,
-}
 
 // 1. GET with Filtering
 pub async fn get_clients(
