@@ -98,3 +98,19 @@ pub struct ClientService {
     pub client_id: i32,  // Added pub
     pub service_id: i32, // Added pub
 }
+
+// This replaces RegisterUserDto
+#[derive(Deserialize)]
+pub struct RegisterUserDto {
+    pub username: String,
+    pub password: String,
+    pub confirm_password: String,
+    pub role: String,
+}
+
+// This replaces the Login response
+#[derive(Serialize)]
+pub struct LoginResponseDto {
+    pub token: String,
+    pub user: crate::models::User,
+}
