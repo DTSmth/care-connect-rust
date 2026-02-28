@@ -5,6 +5,7 @@ use axum::{
 };
 use sqlx::PgPool;
 use serde::Deserialize;
+use crate::errors::AppError;
 use crate::models::{Client, ClientFilters, UpdateClientRequest};
 
 
@@ -12,7 +13,7 @@ use crate::models::{Client, ClientFilters, UpdateClientRequest};
 pub async fn get_clients(
     State(pool): State<PgPool>,
     Query(filters): Query<ClientFilters>,
-) -> Result<Json<Vec<Client>>, StatusCode> {
+) -> Result<Json<Vec<Client>>, AppError> {
     let clients = match (filters.first_name, filters.last_name, filters.zipcode) {
         (Some(f), Some(l), _) => {
             sqlx::query_as::<_, Client>("SELECT * FROM client WHERE first_name = $1 AND last_name = $2")
@@ -25,25 +26,19 @@ pub async fn get_clients(
         _ => {
             sqlx::query_as::<_, Client>("SELECT * FROM client").fetch_all(&pool).await
         }
-    }.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }?;
 
     Ok(Json(clients))
 }
 
 pub async fn get_client_by_id(
     State(pool): State<PgPool>,
-    Path(id): Path<i32>, // This extracts the {id} from the URL
-) -> Result<Json<Client>, StatusCode> {
+    Path(id): Path<i32>,
+) -> Result<Json<Client>, AppError> {
     let client = sqlx::query_as::<_, Client>("SELECT * FROM client WHERE client_id = $1")
         .bind(id)
         .fetch_one(&pool)
-        .await
-        .map_err(|e| {
-            match e {
-                sqlx::Error::RowNotFound => StatusCode::NOT_FOUND,
-                _ => StatusCode::INTERNAL_SERVER_ERROR,
-            }
-        })?;
+        .await?;
 
     Ok(Json(client))
 }
@@ -51,8 +46,8 @@ pub async fn get_client_by_id(
 // 2. POST (Create)
 pub async fn create_client(
     State(pool): State<PgPool>,
-    Json(payload): Json<Client>, // Assuming Client struct matches DB
-) -> Result<(StatusCode, Json<Client>), StatusCode> {
+    Json(payload): Json<Client>,
+) -> Result<(StatusCode, Json<Client>), AppError> {
     let new_client = sqlx::query_as::<_, Client>(
         "INSERT INTO client (first_name, last_name, has_personal_care, has_lifting, address_1, address_2, zipcode, phone_number)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *"
@@ -61,8 +56,7 @@ pub async fn create_client(
         .bind(payload.has_personal_care).bind(payload.has_lifting)
         .bind(&payload.address_1).bind(&payload.address_2)
         .bind(&payload.zipcode).bind(&payload.phone_number)
-        .fetch_one(&pool).await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .fetch_one(&pool).await?;
 
     Ok((StatusCode::CREATED, Json(new_client)))
 }
@@ -70,9 +64,9 @@ pub async fn create_client(
 // 3. PUT (Update)
 pub async fn update_client(
     State(pool): State<PgPool>,
-    Path(id): Path<i32>, // The ID from the URL
-    Json(payload): Json<UpdateClientRequest>, // The body from React
-) -> Result<Json<Client>, StatusCode> {
+    Path(id): Path<i32>,
+    Json(payload): Json<UpdateClientRequest>,
+) -> Result<Json<Client>, AppError> {
     let updated_client = sqlx::query_as::<_, Client>(
         "UPDATE client SET
             first_name = $1, last_name = $2, has_personal_care = $3,
@@ -89,10 +83,9 @@ pub async fn update_client(
         .bind(&payload.address_2)
         .bind(&payload.zipcode)
         .bind(&payload.phone_number)
-        .bind(id) // The ID from Path(id)
+        .bind(id)
         .fetch_one(&pool)
-        .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
+        .await?;
 
     Ok(Json(updated_client))
 }
@@ -101,12 +94,11 @@ pub async fn update_client(
 pub async fn delete_client(
     State(pool): State<PgPool>,
     Path(id): Path<i32>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, AppError> {
     sqlx::query("DELETE FROM client WHERE client_id = $1")
         .bind(id)
         .execute(&pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
