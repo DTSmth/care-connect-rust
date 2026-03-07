@@ -216,6 +216,9 @@ pub struct EmployeePreference {
     pub preferred_zipcode: Option<String>,
     pub min_hours: Option<i16>,
     pub max_hours: Option<i16>,
+    /// Day abbreviations the employee is available: MON, TUE, WED, THU, FRI, SAT, SUN.
+    /// NULL or empty = no day preference (all shifts shown).
+    pub available_days: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -226,6 +229,7 @@ pub struct UpsertPreferenceRequest {
     pub preferred_zipcode: Option<String>,
     pub min_hours: Option<i16>,
     pub max_hours: Option<i16>,
+    pub available_days: Option<Vec<String>>,
 }
 
 #[derive(Serialize)]

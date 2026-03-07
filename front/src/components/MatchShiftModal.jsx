@@ -2,20 +2,90 @@ import { useState, useEffect } from 'react';
 import { getPreferences, upsertPreferences, getMatches } from '../api/employeeApi';
 import { assignShift } from '../api/shiftApi';
 
+// ─── Constants ───────────────────────────────────────────────────────────────
+
 const EMPTY_PREFS = {
     canDoPersonalCare: null,
     canDoLifting: null,
     preferredZipcode: '',
     minHours: '',
     maxHours: '',
+    availableDays: [],
 };
 
-// 3-state toggle: null = no preference, true = can do, false = cannot
+const DAYS = [
+    { key: 'MON', label: 'M',  full: 'Mon' },
+    { key: 'TUE', label: 'T',  full: 'Tue' },
+    { key: 'WED', label: 'W',  full: 'Wed' },
+    { key: 'THU', label: 'Th', full: 'Thu' },
+    { key: 'FRI', label: 'F',  full: 'Fri' },
+    { key: 'SAT', label: 'Sa', full: 'Sat' },
+    { key: 'SUN', label: 'Su', full: 'Sun' },
+];
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function parseShiftDays(rule) {
+    if (!rule) return [];
+    if (rule === 'DAILY') return DAYS.map(d => d.key);
+    const m = rule.match(/^WEEKLY:(.+)$/);
+    return m ? m[1].split(',').map(d => d.trim().toUpperCase()) : [];
+}
+
+/**
+ * Returns an array of match criteria chips for a shift result card.
+ * Each chip has { label, match: 'good' | 'conflict' | 'neutral' }.
+ * Only chips where the user has actually set a preference are returned.
+ */
+function buildCriteria(shift, client, prefs) {
+    const chips = [];
+
+    // Hours
+    const min = prefs.minHours !== '' ? parseInt(prefs.minHours) : null;
+    const max = prefs.maxHours !== '' ? parseInt(prefs.maxHours) : null;
+    if (min !== null || max !== null) {
+        const fits = (min === null || shift.totalHours >= min) &&
+                     (max === null || shift.totalHours <= max);
+        chips.push({
+            label: `${shift.totalHours}h`,
+            match: fits ? 'good' : 'conflict',
+        });
+    }
+
+    // Zipcode
+    if (prefs.preferredZipcode) {
+        const fits = shift.zipcode === prefs.preferredZipcode;
+        chips.push({ label: shift.zipcode || '—', match: fits ? 'good' : 'neutral' });
+    }
+
+    // Personal care — only show chip if the shift requires it
+    if (client.hasPersonalCare) {
+        if (prefs.canDoPersonalCare === true)  chips.push({ label: 'Personal care ✓', match: 'good' });
+        if (prefs.canDoPersonalCare === false) chips.push({ label: 'Personal care needed', match: 'conflict' });
+    }
+
+    // Lifting — only show chip if the shift requires it
+    if (client.hasLifting) {
+        if (prefs.canDoLifting === true)  chips.push({ label: 'Lifting ✓', match: 'good' });
+        if (prefs.canDoLifting === false) chips.push({ label: 'Lifting needed', match: 'conflict' });
+    }
+
+    return chips;
+}
+
+const CHIP_CLASS = {
+    good:     'bg-green-100 text-green-800',
+    conflict: 'bg-amber-100 text-amber-700',
+    neutral:  'bg-gray-100  text-gray-500',
+};
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
 function CapabilityToggle({ label, hint, value, onChange }) {
     const options = [
-        { val: null,  label: 'Not set',  style: value === null  ? 'bg-gray-200 text-gray-700 ring-2 ring-gray-400'   : 'bg-white text-gray-400 border border-gray-200' },
-        { val: true,  label: 'Can do',   style: value === true  ? 'bg-green-100 text-green-800 ring-2 ring-green-400' : 'bg-white text-gray-400 border border-gray-200' },
-        { val: false, label: "Can't do", style: value === false ? 'bg-red-100 text-red-700 ring-2 ring-red-400'       : 'bg-white text-gray-400 border border-gray-200' },
+        { val: null,  text: 'Not set',  cls: value === null  ? 'bg-gray-200 text-gray-700 ring-2 ring-gray-400'   : 'bg-white text-gray-400 border border-gray-200' },
+        { val: true,  text: 'Can do',   cls: value === true  ? 'bg-green-100 text-green-800 ring-2 ring-green-400' : 'bg-white text-gray-400 border border-gray-200' },
+        { val: false, text: "Can't do", cls: value === false ? 'bg-red-100 text-red-700 ring-2 ring-red-400'       : 'bg-white text-gray-400 border border-gray-200' },
     ];
     return (
         <div>
@@ -23,10 +93,34 @@ function CapabilityToggle({ label, hint, value, onChange }) {
             {hint && <p className="text-xs text-gray-400 mb-1">{hint}</p>}
             <div className="flex gap-1">
                 {options.map(opt => (
-                    <button key={String(opt.val)} type="button"
-                        onClick={() => onChange(opt.val)}
-                        className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${opt.style}`}>
-                        {opt.label}
+                    <button key={String(opt.val)} type="button" onClick={() => onChange(opt.val)}
+                        className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${opt.cls}`}>
+                        {opt.text}
+                    </button>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+function DayPicker({ value = [], onChange }) {
+    const toggle = (key) => {
+        const next = value.includes(key) ? value.filter(d => d !== key) : [...value, key];
+        onChange(next);
+    };
+    return (
+        <div>
+            <p className="text-xs font-semibold text-gray-600 mb-1">
+                Available Days <span className="font-normal text-gray-400">(leave blank for any day)</span>
+            </p>
+            <div className="flex gap-1.5">
+                {DAYS.map(d => (
+                    <button key={d.key} type="button" title={d.full} onClick={() => toggle(d.key)}
+                        className={`w-8 h-8 rounded-full text-xs font-semibold transition-all
+                            ${value.includes(d.key)
+                                ? 'bg-violet-600 text-white ring-2 ring-violet-300'
+                                : 'bg-white text-gray-400 border border-gray-200 hover:border-violet-300'}`}>
+                        {d.label}
                     </button>
                 ))}
             </div>
@@ -35,54 +129,113 @@ function CapabilityToggle({ label, hint, value, onChange }) {
 }
 
 function MatchCard({ m, prefs, onAssign, assigning }) {
-    const warnings = [];
-    if (m.shift.client.hasPersonalCare && prefs.canDoPersonalCare === false)
-        warnings.push('Requires personal care');
-    if (m.shift.client.hasLifting && prefs.canDoLifting === false)
-        warnings.push('Requires lifting');
+    const shiftDays = parseShiftDays(m.shift.recurrenceRule);
+    const availDays = prefs.availableDays ?? [];
+    const isDaily = m.shift.recurrenceRule === 'DAILY';
 
-    const isConflict = warnings.length > 0;
+    const chips = buildCriteria(m.shift, m.shift.client, prefs);
+    const hasConflict = chips.some(c => c.match === 'conflict');
+    const hasGood     = chips.some(c => c.match === 'good');
+
+    // Accent bar: green = at least one match, amber = any conflict, gray = neutral
+    const accentBar = hasConflict
+        ? 'border-l-amber-400'
+        : hasGood ? 'border-l-green-400'
+        : 'border-l-gray-200';
 
     return (
-        <div className={`flex items-start justify-between rounded-lg border p-3 gap-3
-            ${isConflict ? 'border-amber-200 bg-amber-50' : 'border-gray-200 bg-white'}`}>
-            <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-sm font-semibold text-gray-900">
-                        {m.shift.client.firstName} {m.shift.client.lastName}
-                    </p>
-                    {isConflict && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
-                            ⚠ Needs discussion
+        <div className={`rounded-lg border border-gray-200 border-l-4 ${accentBar} bg-white p-3`}>
+            <div className="flex items-start gap-3">
+                <div className="flex-1 min-w-0">
+                    {/* Title row */}
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-gray-900">
+                            {m.shift.client.firstName} {m.shift.client.lastName}
                         </span>
+                        <span className="text-xs text-gray-400">{m.shift.service.serviceName}</span>
+                        {m.shift.defaultStartTime && (
+                            <span className="text-xs font-medium text-indigo-600 ml-auto">
+                                {m.shift.defaultStartTime.slice(0, 5)}
+                            </span>
+                        )}
+                    </div>
+
+                    {/* Meta row */}
+                    <p className="text-xs text-gray-400 mt-0.5">
+                        {m.shift.totalHours}h per shift
+                        {m.shift.zipcode && <> · {m.shift.zipcode}</>}
+                        {isDaily && <> · <span className="text-violet-600 font-medium">Daily</span></>}
+                    </p>
+
+                    {/* Day pills — only show for weekly schedules */}
+                    {!isDaily && shiftDays.length > 0 && (
+                        <div className="flex gap-1 mt-2">
+                            {DAYS.filter(d => shiftDays.includes(d.key)).map(d => {
+                                // Three states:
+                                // no day pref set → neutral violet (all shift days look the same)
+                                // pref set + this day matches → bright violet = confirmed overlap
+                                // pref set + this day doesn't match → gray = not available
+                                const noPrefs = availDays.length === 0;
+                                const isMatch = !noPrefs && availDays.includes(d.key);
+                                return (
+                                    <span key={d.key} title={d.full}
+                                        className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold
+                                            ${noPrefs
+                                                ? 'bg-violet-100 text-violet-600'
+                                                : isMatch
+                                                    ? 'bg-violet-600 text-white ring-2 ring-violet-300 ring-offset-1'
+                                                    : 'bg-gray-100 text-gray-300'}`}>
+                                        {d.label}
+                                    </span>
+                                );
+                            })}
+                            {availDays.length > 0 && (
+                                <span className="self-center ml-1 text-xs text-gray-400">
+                                    {shiftDays.filter(d => availDays.includes(d)).length} of {shiftDays.length} days match
+                                </span>
+                            )}
+                        </div>
+                    )}
+
+                    {/* For daily shifts with day prefs set, show how many days overlap */}
+                    {isDaily && availDays.length > 0 && (
+                        <div className="flex gap-1 mt-2">
+                            {availDays.map(key => {
+                                const day = DAYS.find(d => d.key === key);
+                                return day ? (
+                                    <span key={key}
+                                        className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold bg-violet-600 text-white ring-2 ring-violet-300 ring-offset-1">
+                                        {day.label}
+                                    </span>
+                                ) : null;
+                            })}
+                            <span className="self-center ml-1 text-xs text-gray-400">all available days covered</span>
+                        </div>
+                    )}
+
+                    {/* Match criteria chips */}
+                    {chips.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                            {chips.map((c, i) => (
+                                <span key={i} className={`rounded-full px-2 py-0.5 text-xs font-medium ${CHIP_CLASS[c.match]}`}>
+                                    {c.label}
+                                </span>
+                            ))}
+                        </div>
                     )}
                 </div>
-                <p className="text-xs text-gray-500 mt-0.5">
-                    {m.shift.service.serviceName} · {m.shift.totalHours}h
-                    {m.shift.zipcode && <> · {m.shift.zipcode}</>}
-                    {m.shift.defaultStartTime && (
-                        <> · <span className="text-indigo-600 font-medium">{m.shift.defaultStartTime.slice(0, 5)}</span></>
-                    )}
-                </p>
-                {warnings.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-1.5">
-                        {warnings.map(w => (
-                            <span key={w} className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-700">
-                                {w}
-                            </span>
-                        ))}
-                    </div>
-                )}
+
+                {/* Assign button */}
+                <button onClick={() => onAssign(m)} disabled={assigning === m.shift.shiftId}
+                    className="shrink-0 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-500 disabled:opacity-50 mt-0.5">
+                    {assigning === m.shift.shiftId ? '…' : 'Assign'}
+                </button>
             </div>
-            <button
-                onClick={() => onAssign(m)}
-                disabled={assigning === m.shift.shiftId}
-                className="shrink-0 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-500 disabled:opacity-50">
-                {assigning === m.shift.shiftId ? '…' : 'Assign'}
-            </button>
         </div>
     );
 }
+
+// ─── Main component ───────────────────────────────────────────────────────────
 
 export default function MatchShiftModal({ isOpen, onClose, employees = [], onAssigned }) {
     const [step, setStep] = useState(1);
@@ -105,6 +258,7 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
                     preferredZipcode: p.preferredZipcode ?? '',
                     minHours: p.minHours ?? '',
                     maxHours: p.maxHours ?? '',
+                    availableDays: p.availableDays ?? [],
                 });
             })
             .catch(() => setPrefs(EMPTY_PREFS));
@@ -122,6 +276,7 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
                 preferredZipcode: prefs.preferredZipcode || null,
                 minHours: prefs.minHours !== '' ? parseInt(prefs.minHours) : null,
                 maxHours: prefs.maxHours !== '' ? parseInt(prefs.maxHours) : null,
+                availableDays: prefs.availableDays.length > 0 ? prefs.availableDays : null,
             });
             const res = await getMatches(selectedEmployeeId);
             setMatches(res.data || []);
@@ -157,14 +312,12 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
         onClose();
     };
 
-    // Split results into tiers based on score and conflicts
-    const goodMatches = matches.filter(m => {
-        const hasConflict =
-            (m.shift.client.hasPersonalCare && prefs.canDoPersonalCare === false) ||
-            (m.shift.client.hasLifting && prefs.canDoLifting === false);
-        return m.score > 0 && !hasConflict;
-    });
-    const otherMatches = matches.filter(m => !goodMatches.includes(m));
+    // Soft split: positive-score shifts first, then the rest — no hard exclusions
+    const positiveMatches = matches.filter(m => m.score > 0);
+    const otherMatches    = matches.filter(m => m.score <= 0);
+    const prefsAreSet = prefs.canDoPersonalCare !== null || prefs.canDoLifting !== null ||
+        prefs.preferredZipcode || prefs.minHours !== '' || prefs.maxHours !== '' ||
+        prefs.availableDays.length > 0;
 
     if (!isOpen) return null;
 
@@ -177,7 +330,9 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
                     <div>
                         <h2 className="text-xl font-bold text-gray-900">Find Best Match</h2>
                         <p className="text-sm text-gray-500 mt-0.5">
-                            {step === 1 ? 'Set employee capabilities to rank available shifts' : 'All open shifts — best fits first'}
+                            {step === 1
+                                ? 'Set what this employee can do to rank shifts'
+                                : `${matches.length} open shift${matches.length !== 1 ? 's' : ''} · sorted by best match`}
                         </p>
                     </div>
                     <span className="text-xs font-medium text-gray-400">Step {step} of 2</span>
@@ -187,17 +342,15 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
                     <div className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
                 )}
 
-                {/* ── STEP 1 ── */}
+                {/* ── STEP 1: Preferences ── */}
                 {step === 1 && (
                     <form onSubmit={handleFindMatches} className="space-y-4">
                         <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-1">Employee</label>
-                            <select
-                                required
+                            <select required
                                 className="w-full rounded-lg border border-gray-300 p-2.5 focus:ring-2 focus:ring-violet-500"
                                 value={selectedEmployeeId}
-                                onChange={e => setSelectedEmployeeId(e.target.value)}
-                            >
+                                onChange={e => setSelectedEmployeeId(e.target.value)}>
                                 <option value="">-- Select Employee --</option>
                                 {employees.map(emp => (
                                     <option key={emp.employeeId} value={emp.employeeId}>
@@ -208,32 +361,28 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
                         </div>
 
                         <div className="rounded-lg border border-gray-100 bg-gray-50 p-4 space-y-4">
-                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Employee Capabilities</p>
+                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                                Employee Capabilities
+                                <span className="ml-1 font-normal normal-case text-gray-400">— leave anything blank to see all shifts</span>
+                            </p>
 
                             <div className="flex gap-6 flex-wrap">
-                                <CapabilityToggle
-                                    label="Personal Care"
-                                    hint="Not set = show all shifts"
+                                <CapabilityToggle label="Personal Care" hint="Not set = show all"
                                     value={prefs.canDoPersonalCare}
-                                    onChange={val => setPrefs({ ...prefs, canDoPersonalCare: val })}
-                                />
-                                <CapabilityToggle
-                                    label="Lifting"
-                                    hint="Not set = show all shifts"
+                                    onChange={val => setPrefs({ ...prefs, canDoPersonalCare: val })} />
+                                <CapabilityToggle label="Lifting" hint="Not set = show all"
                                     value={prefs.canDoLifting}
-                                    onChange={val => setPrefs({ ...prefs, canDoLifting: val })}
-                                />
+                                    onChange={val => setPrefs({ ...prefs, canDoLifting: val })} />
                             </div>
+
+                            <DayPicker value={prefs.availableDays}
+                                onChange={days => setPrefs({ ...prefs, availableDays: days })} />
 
                             <div>
                                 <label className="block text-sm font-semibold text-gray-700 mb-1">Preferred Zipcode</label>
-                                <input
-                                    type="text"
-                                    className="w-full rounded-lg border border-gray-300 p-2.5"
-                                    placeholder="e.g. 30301"
-                                    value={prefs.preferredZipcode}
-                                    onChange={e => setPrefs({ ...prefs, preferredZipcode: e.target.value })}
-                                />
+                                <input type="text" className="w-full rounded-lg border border-gray-300 p-2.5"
+                                    placeholder="e.g. 30301" value={prefs.preferredZipcode}
+                                    onChange={e => setPrefs({ ...prefs, preferredZipcode: e.target.value })} />
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
@@ -241,19 +390,15 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
                                     <label className="block text-sm font-semibold text-gray-700 mb-1">Min Hours / shift</label>
                                     <input type="number" min="1" max="24"
                                         className="w-full rounded-lg border border-gray-300 p-2.5"
-                                        placeholder="e.g. 2"
-                                        value={prefs.minHours}
-                                        onChange={e => setPrefs({ ...prefs, minHours: e.target.value })}
-                                    />
+                                        placeholder="e.g. 2" value={prefs.minHours}
+                                        onChange={e => setPrefs({ ...prefs, minHours: e.target.value })} />
                                 </div>
                                 <div>
                                     <label className="block text-sm font-semibold text-gray-700 mb-1">Max Hours / shift</label>
                                     <input type="number" min="1" max="24"
                                         className="w-full rounded-lg border border-gray-300 p-2.5"
-                                        placeholder="e.g. 8"
-                                        value={prefs.maxHours}
-                                        onChange={e => setPrefs({ ...prefs, maxHours: e.target.value })}
-                                    />
+                                        placeholder="e.g. 8" value={prefs.maxHours}
+                                        onChange={e => setPrefs({ ...prefs, maxHours: e.target.value })} />
                                 </div>
                             </div>
                         </div>
@@ -271,58 +416,69 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
                     </form>
                 )}
 
-                {/* ── STEP 2: Tiered results ── */}
+                {/* ── STEP 2: Results ── */}
                 {step === 2 && (
                     <div className="space-y-3">
                         {matches.length === 0 ? (
                             <div className="py-10 text-center space-y-2">
                                 <p className="text-gray-700 font-medium">No open shifts available right now.</p>
-                                <p className="text-sm text-gray-400">Check back after marking more shifts as open for matching.</p>
+                                <p className="text-sm text-gray-400">Mark shifts as open for matching to see them here.</p>
                             </div>
                         ) : (
-                            <div className="max-h-[26rem] overflow-y-auto space-y-4 pr-1">
+                            <div className="max-h-[28rem] overflow-y-auto space-y-4 pr-1">
 
-                                {/* Tier 1: Great fits */}
-                                {goodMatches.length > 0 && (
-                                    <div className="space-y-2">
-                                        <p className="text-xs font-semibold text-green-700 uppercase tracking-wide flex items-center gap-1">
-                                            <span>✓</span> Great Fits ({goodMatches.length})
+                                {/* Strong matches */}
+                                {positiveMatches.length > 0 && (
+                                    <section className="space-y-2">
+                                        <p className="text-xs font-semibold text-green-700 uppercase tracking-wide">
+                                            Best Matches ({positiveMatches.length})
                                         </p>
-                                        {goodMatches.map(m => (
-                                            <MatchCard key={m.shift.shiftId} m={m} prefs={prefs} onAssign={handleAssign} assigning={assigning} />
+                                        {positiveMatches.map(m => (
+                                            <MatchCard key={m.shift.shiftId} m={m} prefs={prefs}
+                                                onAssign={handleAssign} assigning={assigning} />
                                         ))}
-                                    </div>
+                                    </section>
                                 )}
 
-                                {/* Empty great-fits with fallback guidance */}
-                                {goodMatches.length === 0 && (
-                                    <div className="rounded-lg bg-blue-50 border border-blue-100 px-4 py-3 text-sm text-blue-700">
-                                        No perfect matches found — review the options below. These may need a quick conversation with the employee first.
-                                    </div>
-                                )}
-
-                                {/* Tier 2: Other / conflict shifts */}
+                                {/* Other shifts — always shown, never hidden */}
                                 {otherMatches.length > 0 && (
-                                    <div className="space-y-2">
-                                        <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide">
-                                            {goodMatches.length > 0 ? `Other Open Shifts (${otherMatches.length})` : `All Open Shifts (${otherMatches.length})`}
-                                        </p>
+                                    <section className="space-y-2">
+                                        {positiveMatches.length > 0 && (
+                                            <div className="flex items-center gap-2 pt-1">
+                                                <div className="flex-1 h-px bg-gray-200" />
+                                                <p className="text-xs font-medium text-gray-400 whitespace-nowrap">
+                                                    Other open shifts ({otherMatches.length})
+                                                </p>
+                                                <div className="flex-1 h-px bg-gray-200" />
+                                            </div>
+                                        )}
+                                        {positiveMatches.length === 0 && !prefsAreSet && (
+                                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                                                All Open Shifts ({otherMatches.length})
+                                            </p>
+                                        )}
+                                        {positiveMatches.length === 0 && prefsAreSet && (
+                                            <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 text-xs text-blue-700 mb-1">
+                                                No shifts fully match — all options shown below. Some may need a conversation first.
+                                            </div>
+                                        )}
                                         {otherMatches.map(m => (
-                                            <MatchCard key={m.shift.shiftId} m={m} prefs={prefs} onAssign={handleAssign} assigning={assigning} />
+                                            <MatchCard key={m.shift.shiftId} m={m} prefs={prefs}
+                                                onAssign={handleAssign} assigning={assigning} />
                                         ))}
-                                    </div>
+                                    </section>
                                 )}
                             </div>
                         )}
 
-                        <div className="flex justify-between pt-2">
+                        <div className="flex justify-between pt-2 border-t border-gray-100">
                             <button onClick={() => setStep(1)}
                                 className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">
                                 ← Back
                             </button>
                             <button onClick={handleClose}
                                 className="px-4 py-2 text-sm font-medium text-gray-500 hover:bg-gray-100 rounded-lg">
-                                Cancel
+                                Done
                             </button>
                         </div>
                     </div>

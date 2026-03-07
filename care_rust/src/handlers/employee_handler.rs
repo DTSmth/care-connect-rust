@@ -83,6 +83,24 @@ pub async fn delete_employee(
 
 // ── Preferences & Matching ───────────────────────────────────────────────────
 
+/// Returns the set of day abbreviations (MON, TUE, …) covered by a recurrence rule.
+/// DAILY expands to all 7 days; WEEKLY:MON,WED,FRI returns ["MON","WED","FRI"].
+fn shift_recurrence_days(rule: &str) -> Vec<&'static str> {
+    const ALL: &[&str] = &["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
+    if rule == "DAILY" {
+        return ALL.to_vec();
+    }
+    match rule.split_once(':') {
+        Some(("WEEKLY", days_str)) => days_str
+            .split(',')
+            .filter_map(|d| {
+                        ALL.iter().copied().find(|&a| a.eq_ignore_ascii_case(d.trim()))
+            })
+            .collect(),
+        _ => vec![],
+    }
+}
+
 #[derive(FromRow)]
 struct ShiftRow {
     shift_id: i32,
@@ -160,14 +178,15 @@ pub async fn upsert_preferences(
 ) -> Result<(StatusCode, Json<EmployeePreference>), AppError> {
     let pref = sqlx::query_as::<_, EmployeePreference>(
         "INSERT INTO employee_preference
-            (employee_id, can_do_personal_care, can_do_lifting, preferred_zipcode, min_hours, max_hours)
-         VALUES ($1, $2, $3, $4, $5, $6)
+            (employee_id, can_do_personal_care, can_do_lifting, preferred_zipcode, min_hours, max_hours, available_days)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (employee_id) DO UPDATE SET
             can_do_personal_care = EXCLUDED.can_do_personal_care,
             can_do_lifting       = EXCLUDED.can_do_lifting,
             preferred_zipcode    = EXCLUDED.preferred_zipcode,
             min_hours            = EXCLUDED.min_hours,
-            max_hours            = EXCLUDED.max_hours
+            max_hours            = EXCLUDED.max_hours,
+            available_days       = EXCLUDED.available_days
          RETURNING *",
     )
     .bind(id)
@@ -176,6 +195,7 @@ pub async fn upsert_preferences(
     .bind(&payload.preferred_zipcode)
     .bind(payload.min_hours)
     .bind(payload.max_hours)
+    .bind(&payload.available_days)
     .fetch_one(&pool)
     .await?;
     Ok((StatusCode::OK, Json(pref)))
@@ -200,6 +220,7 @@ pub async fn get_matches(
         preferred_zipcode: None,
         min_hours: None,
         max_hours: None,
+        available_days: None,
     });
 
     // All open shifts are always returned so the coordinator has full visibility.
@@ -253,6 +274,28 @@ pub async fn get_matches(
             }
             if r.has_lifting && pref.can_do_lifting == Some(false) {
                 score -= 2;
+            }
+
+            // Day-of-week availability scoring
+            // Each overlapping day earns +1 (capped at +3 to keep scoring balanced).
+            // Zero overlap gives -1 as a mild signal (not a hard filter).
+            if let Some(ref avail) = pref.available_days {
+                if !avail.is_empty() {
+                    let shift_days = shift_recurrence_days(
+                        r.recurrence_rule.as_deref().unwrap_or(""),
+                    );
+                    if !shift_days.is_empty() {
+                        let overlap = shift_days
+                            .iter()
+                            .filter(|d| avail.iter().any(|a| a.eq_ignore_ascii_case(d)))
+                            .count() as i32;
+                        if overlap == 0 {
+                            score -= 1;
+                        } else {
+                            score += overlap.min(3);
+                        }
+                    }
+                }
             }
 
             MatchResult {
