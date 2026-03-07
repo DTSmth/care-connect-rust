@@ -76,6 +76,8 @@ async fn main() {
         .route("/employees/:id/preferences", get(employee_handler::get_preferences))
         .route("/employees/:id/preferences", put(employee_handler::upsert_preferences))
         .route("/employees/:id/matches", get(employee_handler::get_matches))
+        // Anonymous matching — no employee record required
+        .route("/matches", post(employee_handler::anonymous_match))
         // Shift routes
         .route("/shifts", get(shift_handler::get_shifts))
         .route("/shifts", post(shift_handler::create_shift))

@@ -9,3 +9,4 @@ export const deleteEmployee    = (id) => api.delete(`/employees/${id}`);
 export const getPreferences    = (id) => api.get(`/employees/${id}/preferences`);
 export const upsertPreferences = (id, data) => api.put(`/employees/${id}/preferences`, data);
 export const getMatches        = (id) => api.get(`/employees/${id}/matches`);
+export const anonymousMatch    = (criteria) => api.post('/matches', criteria);

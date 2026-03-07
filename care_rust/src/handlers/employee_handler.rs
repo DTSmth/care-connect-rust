@@ -222,34 +222,9 @@ pub async fn upsert_preferences(
     Ok((StatusCode::OK, Json(pref)))
 }
 
-/// GET /employees/:id/matches
-pub async fn get_matches(
-    State(pool): State<PgPool>,
-    Path(id): Path<i32>,
-) -> Result<Json<Vec<MatchResult>>, AppError> {
-    // Use a default "no preferences" struct when the employee hasn't saved any yet.
-    let pref = sqlx::query_as::<_, EmployeePreference>(
-        "SELECT * FROM employee_preference WHERE employee_id = $1",
-    )
-    .bind(id)
-    .fetch_optional(&pool)
-    .await?
-    .unwrap_or(EmployeePreference {
-        employee_id: id,
-        can_do_personal_care: None,
-        can_do_lifting: None,
-        home_zipcode: None,
-        home_lat: None,
-        home_lon: None,
-        max_distance_miles: None,
-        min_hours: None,
-        max_hours: None,
-        available_days: None,
-    });
-
-    // All open shifts are always returned so the coordinator has full visibility.
-    // Scoring: positive for good fits, negative for known conflicts.
-    // NULL capability = no preference (neutral); true = can do (bonus); false = can't (penalty).
+/// Core scoring logic — shared between employee-based and anonymous matching.
+/// Fetches all open shifts from the DB and scores each against the given preferences.
+async fn score_open_shifts(pool: &PgPool, pref: &EmployeePreference) -> Result<Vec<MatchResult>, sqlx::Error> {
     let rows = sqlx::query_as::<_, ShiftRow>(
         "SELECT
             s.shift_id, s.total_hours, s.zipcode, s.open_for_matching,
@@ -264,7 +239,7 @@ pub async fn get_matches(
          JOIN service sv ON s.service_id = sv.services_id
          WHERE s.open_for_matching = true",
     )
-    .fetch_all(&pool)
+    .fetch_all(pool)
     .await?;
 
     let mut results: Vec<MatchResult> = rows
@@ -292,7 +267,6 @@ pub async fn get_matches(
                     if dist > max as f64 { score -= 3; }
                 }
             } else if let Some(ref hz) = pref.home_zipcode {
-                // Fallback: first-3-digit zipcode proximity (same area code = slight bonus)
                 if r.zipcode.len() >= 3 && hz.len() >= 3 && r.zipcode[..3] == hz[..3] {
                     score += 1;
                 }
@@ -305,15 +279,11 @@ pub async fn get_matches(
                 _ => {}
             }
 
-            // Bonus for confirmed capability matches
             if r.has_personal_care && pref.can_do_personal_care == Some(true) { score += 1; }
             if r.has_lifting       && pref.can_do_lifting       == Some(true) { score += 1; }
-
-            // Penalty for known conflicts — shift stays visible but ranks lower
             if r.has_personal_care && pref.can_do_personal_care == Some(false) { score -= 2; }
             if r.has_lifting       && pref.can_do_lifting       == Some(false) { score -= 2; }
 
-            // Day-of-week availability scoring (capped at +3)
             if let Some(ref avail) = pref.available_days {
                 if !avail.is_empty() {
                     let shift_days = shift_recurrence_days(
@@ -338,6 +308,57 @@ pub async fn get_matches(
         .collect();
 
     results.sort_by(|a, b| b.score.cmp(&a.score));
+    Ok(results)
+}
 
+/// GET /employees/:id/matches — match against a saved employee's preferences
+pub async fn get_matches(
+    State(pool): State<PgPool>,
+    Path(id): Path<i32>,
+) -> Result<Json<Vec<MatchResult>>, AppError> {
+    let pref = sqlx::query_as::<_, EmployeePreference>(
+        "SELECT * FROM employee_preference WHERE employee_id = $1",
+    )
+    .bind(id)
+    .fetch_optional(&pool)
+    .await?
+    .unwrap_or(EmployeePreference {
+        employee_id: id,
+        can_do_personal_care: None,
+        can_do_lifting: None,
+        home_zipcode: None,
+        home_lat: None,
+        home_lon: None,
+        max_distance_miles: None,
+        min_hours: None,
+        max_hours: None,
+        available_days: None,
+    });
+
+    let results = score_open_shifts(&pool, &pref).await?;
+    Ok(Json(results))
+}
+
+/// POST /matches — anonymous matching (no employee record required).
+/// Accepts criteria in the request body and returns ranked open shifts.
+/// The assign step is unavailable until the candidate is added as an employee.
+pub async fn anonymous_match(
+    State(pool): State<PgPool>,
+    Json(payload): Json<UpsertPreferenceRequest>,
+) -> Result<Json<Vec<MatchResult>>, AppError> {
+    let pref = EmployeePreference {
+        employee_id: 0, // unused for scoring
+        can_do_personal_care: payload.can_do_personal_care,
+        can_do_lifting: payload.can_do_lifting,
+        home_zipcode: payload.home_zipcode,
+        home_lat: payload.home_lat,
+        home_lon: payload.home_lon,
+        max_distance_miles: payload.max_distance_miles,
+        min_hours: payload.min_hours,
+        max_hours: payload.max_hours,
+        available_days: payload.available_days,
+    };
+
+    let results = score_open_shifts(&pool, &pref).await?;
     Ok(Json(results))
 }

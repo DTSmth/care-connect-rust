@@ -284,7 +284,7 @@ export default function CalendarPage({ employees = [], clients = [], shifts = []
                                                             onMouseLeave={() => setHoveredShiftId(null)}
                                                             className={`w-full text-left rounded-lg border px-2.5 py-2 transition-all ${cardStyle} ${seriesClass}`}
                                                         >
-                                                            <p className="text-xs font-semibold opacity-80 leading-tight">
+                                                            <p className="text-xs font-semibold opacity-80 leading-tight whitespace-nowrap">
                                                                 {fmtTime(occ.scheduledStart)} – {fmtTime(occ.scheduledEnd)}
                                                             </p>
                                                             <p className="text-xs font-bold mt-0.5 truncate leading-tight">

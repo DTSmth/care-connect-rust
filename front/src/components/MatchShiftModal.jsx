@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getPreferences, upsertPreferences, getMatches } from '../api/employeeApi';
+import { getPreferences, upsertPreferences, getMatches, anonymousMatch } from '../api/employeeApi';
 import { assignShift } from '../api/shiftApi';
 import { geocodeZipcode } from '../utils/geocode';
 
@@ -56,14 +56,15 @@ function buildCriteria(shift, client, prefs, distanceMiles) {
         chips.push({ label: `📍 ${shift.zipcode || '—'} (no distance data)`, match: 'neutral' });
     }
 
-    // Hours
+    // Hours — compare weekly total so min/max range is meaningful
     const min = prefs.minHours !== '' ? parseInt(prefs.minHours) : null;
     const max = prefs.maxHours !== '' ? parseInt(prefs.maxHours) : null;
     if (min !== null || max !== null) {
-        const fits = (min === null || shift.totalHours >= min) &&
-                     (max === null || shift.totalHours <= max);
+        const wkHours = weeklyHours(shift.totalHours, shift.recurrenceRule);
+        const fits = (min === null || wkHours >= min) &&
+                     (max === null || wkHours <= max);
         chips.push({
-            label: `${shift.totalHours}h`,
+            label: `${wkHours}h/wk`,
             match: fits ? 'good' : 'conflict',
         });
     }
@@ -138,7 +139,19 @@ function DayPicker({ value = [], onChange }) {
     );
 }
 
-function MatchCard({ m, prefs, onAssign, assigning }) {
+/** Hours per week = hours per shift × number of days in the recurrence. */
+function weeklyHours(totalHours, recurrenceRule) {
+    if (!recurrenceRule) return totalHours;
+    if (recurrenceRule === 'DAILY') return totalHours * 7;
+    const m = recurrenceRule.match(/^WEEKLY:(.+)$/);
+    if (m) {
+        const days = m[1].split(',').filter(Boolean).length;
+        return totalHours * days;
+    }
+    return totalHours;
+}
+
+function MatchCard({ m, prefs, onAssign, assigning, anonymous }) {
     const shiftDays = parseShiftDays(m.shift.recurrenceRule);
     const availDays = prefs.availableDays ?? [];
     const isDaily = m.shift.recurrenceRule === 'DAILY';
@@ -165,14 +178,14 @@ function MatchCard({ m, prefs, onAssign, assigning }) {
                         <span className="text-xs text-gray-400">{m.shift.service.serviceName}</span>
                         {m.shift.defaultStartTime && (
                             <span className="text-xs font-medium text-indigo-600 ml-auto">
-                                {m.shift.defaultStartTime.slice(0, 5)}
+                                Starts {m.shift.defaultStartTime.slice(0, 5)}
                             </span>
                         )}
                     </div>
 
                     {/* Meta row */}
                     <p className="text-xs text-gray-400 mt-0.5">
-                        {m.shift.totalHours}h per shift
+                        {weeklyHours(m.shift.totalHours, m.shift.recurrenceRule)}h/week
                         {m.shift.zipcode && <> · {m.shift.zipcode}</>}
                         {isDaily && <> · <span className="text-violet-600 font-medium">Daily</span></>}
                     </p>
@@ -235,11 +248,18 @@ function MatchCard({ m, prefs, onAssign, assigning }) {
                     )}
                 </div>
 
-                {/* Assign button */}
-                <button onClick={() => onAssign(m)} disabled={assigning === m.shift.shiftId}
-                    className="shrink-0 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-500 disabled:opacity-50 mt-0.5">
-                    {assigning === m.shift.shiftId ? '…' : 'Assign'}
-                </button>
+                {/* Assign button — disabled for anonymous/new-candidate mode */}
+                {anonymous ? (
+                    <span className="shrink-0 rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-400 mt-0.5 whitespace-nowrap"
+                        title="Add this person as an employee to assign">
+                        Add employee first
+                    </span>
+                ) : (
+                    <button onClick={() => onAssign(m)} disabled={assigning === m.shift.shiftId}
+                        className="shrink-0 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-500 disabled:opacity-50 mt-0.5">
+                        {assigning === m.shift.shiftId ? '…' : 'Assign'}
+                    </button>
+                )}
             </div>
         </div>
     );
@@ -249,6 +269,7 @@ function MatchCard({ m, prefs, onAssign, assigning }) {
 
 export default function MatchShiftModal({ isOpen, onClose, employees = [], onAssigned }) {
     const [step, setStep] = useState(1);
+    const [isAnonymous, setIsAnonymous] = useState(false);
     const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
     const [prefs, setPrefs] = useState(EMPTY_PREFS);
     const [matches, setMatches] = useState([]);
@@ -277,15 +298,12 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
 
     const handleFindMatches = async (e) => {
         e.preventDefault();
-        if (!selectedEmployeeId) return;
+        if (!isAnonymous && !selectedEmployeeId) return;
         setError('');
         setLoading(true);
         try {
-            // Geocode the employee's home zipcode before saving preferences.
-            // This enables real distance scoring in the backend.
             const coords = await geocodeZipcode(prefs.homeZipcode);
-
-            await upsertPreferences(selectedEmployeeId, {
+            const criteria = {
                 canDoPersonalCare: prefs.canDoPersonalCare,
                 canDoLifting: prefs.canDoLifting,
                 homeZipcode: prefs.homeZipcode || null,
@@ -295,8 +313,17 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
                 minHours: prefs.minHours !== '' ? parseInt(prefs.minHours) : null,
                 maxHours: prefs.maxHours !== '' ? parseInt(prefs.maxHours) : null,
                 availableDays: prefs.availableDays.length > 0 ? prefs.availableDays : null,
-            });
-            const res = await getMatches(selectedEmployeeId);
+            };
+
+            let res;
+            if (isAnonymous) {
+                // No employee record — post criteria directly, no preference save
+                res = await anonymousMatch(criteria);
+            } else {
+                // Save preferences for this employee, then fetch matches
+                await upsertPreferences(selectedEmployeeId, criteria);
+                res = await getMatches(selectedEmployeeId);
+            }
             setMatches(res.data || []);
             setStep(2);
         } catch (err) {
@@ -323,6 +350,7 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
 
     const handleClose = () => {
         setStep(1);
+        setIsAnonymous(false);
         setSelectedEmployeeId('');
         setPrefs(EMPTY_PREFS);
         setMatches([]);
@@ -350,7 +378,9 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
                         <h2 className="text-xl font-bold text-gray-900">Find Best Match</h2>
                         <p className="text-sm text-gray-500 mt-0.5">
                             {step === 1
-                                ? 'Set what this employee can do to rank shifts'
+                                ? isAnonymous
+                                    ? 'Matching a new candidate — shifts ranked by criteria'
+                                    : 'Set what this employee can do to rank shifts'
                                 : `${matches.length} open shift${matches.length !== 1 ? 's' : ''} · sorted by best match`}
                         </p>
                     </div>
@@ -364,20 +394,49 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
                 {/* ── STEP 1: Preferences ── */}
                 {step === 1 && (
                     <form onSubmit={handleFindMatches} className="space-y-4">
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-1">Employee</label>
-                            <select required
-                                className="w-full rounded-lg border border-gray-300 p-2.5 focus:ring-2 focus:ring-violet-500"
-                                value={selectedEmployeeId}
-                                onChange={e => setSelectedEmployeeId(e.target.value)}>
-                                <option value="">-- Select Employee --</option>
-                                {employees.map(emp => (
-                                    <option key={emp.employeeId} value={emp.employeeId}>
-                                        {emp.firstName} {emp.lastName}
-                                    </option>
-                                ))}
-                            </select>
+
+                        {/* Mode toggle */}
+                        <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm font-medium">
+                            <button type="button"
+                                onClick={() => { setIsAnonymous(false); setSelectedEmployeeId(''); setPrefs(EMPTY_PREFS); }}
+                                className={`flex-1 py-2 transition-colors ${!isAnonymous
+                                    ? 'bg-violet-600 text-white'
+                                    : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                                Existing Employee
+                            </button>
+                            <button type="button"
+                                onClick={() => { setIsAnonymous(true); setSelectedEmployeeId(''); setPrefs(EMPTY_PREFS); }}
+                                className={`flex-1 py-2 transition-colors ${isAnonymous
+                                    ? 'bg-violet-600 text-white'
+                                    : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                                New Candidate
+                            </button>
                         </div>
+
+                        {/* Employee selector — only shown in Existing Employee mode */}
+                        {!isAnonymous && (
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-1">Employee</label>
+                                <select required
+                                    className="w-full rounded-lg border border-gray-300 p-2.5 focus:ring-2 focus:ring-violet-500"
+                                    value={selectedEmployeeId}
+                                    onChange={e => setSelectedEmployeeId(e.target.value)}>
+                                    <option value="">-- Select Employee --</option>
+                                    {employees.map(emp => (
+                                        <option key={emp.employeeId} value={emp.employeeId}>
+                                            {emp.firstName} {emp.lastName}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+
+                        {/* New candidate info banner */}
+                        {isAnonymous && (
+                            <div className="rounded-lg bg-violet-50 border border-violet-200 px-4 py-3 text-sm text-violet-700">
+                                <span className="font-semibold">On the phone?</span> Enter what you know about the candidate below and we'll rank all open shifts. You can assign once they're added as an employee.
+                            </div>
+                        )}
 
                         <div className="rounded-lg border border-gray-100 bg-gray-50 p-4 space-y-4">
                             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
@@ -447,7 +506,7 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
                                 className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">
                                 Cancel
                             </button>
-                            <button type="submit" disabled={loading || !selectedEmployeeId}
+                            <button type="submit" disabled={loading || (!isAnonymous && !selectedEmployeeId)}
                                 className="rounded-lg bg-violet-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-violet-500 disabled:opacity-50">
                                 {loading ? 'Finding…' : 'Find Matches →'}
                             </button>
@@ -474,7 +533,7 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
                                         </p>
                                         {positiveMatches.map(m => (
                                             <MatchCard key={m.shift.shiftId} m={m} prefs={prefs}
-                                                onAssign={handleAssign} assigning={assigning} />
+                                                onAssign={handleAssign} assigning={assigning} anonymous={isAnonymous} />
                                         ))}
                                     </section>
                                 )}
@@ -503,7 +562,7 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
                                         )}
                                         {otherMatches.map(m => (
                                             <MatchCard key={m.shift.shiftId} m={m} prefs={prefs}
-                                                onAssign={handleAssign} assigning={assigning} />
+                                                onAssign={handleAssign} assigning={assigning} anonymous={isAnonymous} />
                                         ))}
                                     </section>
                                 )}
