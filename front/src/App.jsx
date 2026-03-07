@@ -76,7 +76,7 @@ function AppContent() {
                 } />
                 <Route path="/employees" element={<EmployeesPage />} />
                 <Route path="/calendar" element={
-                    <CalendarPage employees={employees} clients={clients} shifts={shifts} />
+                    <CalendarPage employees={employees} clients={clients} shifts={shifts} onDataChanged={loadData} />
                 } />
                 <Route path="/reports" element={<ReportsPage clients={clients} shifts={shifts} />} />
             </Route>

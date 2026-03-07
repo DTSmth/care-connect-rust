@@ -379,9 +379,9 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
                         <p className="text-sm text-gray-500 mt-0.5">
                             {step === 1
                                 ? isAnonymous
-                                    ? 'Matching a new candidate — shifts ranked by criteria'
-                                    : 'Set what this employee can do to rank shifts'
-                                : `${matches.length} open shift${matches.length !== 1 ? 's' : ''} · sorted by best match`}
+                                    ? 'Matching a new candidate — schedules ranked by criteria'
+                                    : 'Set what this employee can do to rank schedules'
+                                : `${matches.length} open schedule${matches.length !== 1 ? 's' : ''} · sorted by best match`}
                         </p>
                     </div>
                     <span className="text-xs font-medium text-gray-400">Step {step} of 2</span>
@@ -485,17 +485,17 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-sm font-semibold text-gray-700 mb-1">Min Hours / shift</label>
-                                    <input type="number" min="1" max="24"
+                                    <label className="block text-sm font-semibold text-gray-700 mb-1">Min Hours / week</label>
+                                    <input type="number" min="1"
                                         className="w-full rounded-lg border border-gray-300 p-2.5"
-                                        placeholder="e.g. 2" value={prefs.minHours}
+                                        placeholder="e.g. 10" value={prefs.minHours}
                                         onChange={e => setPrefs({ ...prefs, minHours: e.target.value })} />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-semibold text-gray-700 mb-1">Max Hours / shift</label>
-                                    <input type="number" min="1" max="24"
+                                    <label className="block text-sm font-semibold text-gray-700 mb-1">Max Hours / week</label>
+                                    <input type="number" min="1"
                                         className="w-full rounded-lg border border-gray-300 p-2.5"
-                                        placeholder="e.g. 8" value={prefs.maxHours}
+                                        placeholder="e.g. 40" value={prefs.maxHours}
                                         onChange={e => setPrefs({ ...prefs, maxHours: e.target.value })} />
                                 </div>
                             </div>
@@ -519,8 +519,8 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
                     <div className="space-y-3">
                         {matches.length === 0 ? (
                             <div className="py-10 text-center space-y-2">
-                                <p className="text-gray-700 font-medium">No open shifts available right now.</p>
-                                <p className="text-sm text-gray-400">Mark shifts as open for matching to see them here.</p>
+                                <p className="text-gray-700 font-medium">No open schedules available right now.</p>
+                                <p className="text-sm text-gray-400">Mark shift schedules as open for matching to see them here.</p>
                             </div>
                         ) : (
                             <div className="max-h-[28rem] overflow-y-auto space-y-4 pr-1">
@@ -545,19 +545,19 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
                                             <div className="flex items-center gap-2 pt-1">
                                                 <div className="flex-1 h-px bg-gray-200" />
                                                 <p className="text-xs font-medium text-gray-400 whitespace-nowrap">
-                                                    Other open shifts ({otherMatches.length})
+                                                    Other open schedules ({otherMatches.length})
                                                 </p>
                                                 <div className="flex-1 h-px bg-gray-200" />
                                             </div>
                                         )}
                                         {positiveMatches.length === 0 && !prefsAreSet && (
                                             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                                                All Open Shifts ({otherMatches.length})
+                                                All Open Schedules ({otherMatches.length})
                                             </p>
                                         )}
                                         {positiveMatches.length === 0 && prefsAreSet && (
                                             <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 text-xs text-blue-700 mb-1">
-                                                No shifts fully match — all options shown below. Some may need a conversation first.
+                                                No schedules fully match — all options shown below. Some may need a conversation first.
                                             </div>
                                         )}
                                         {otherMatches.map(m => (

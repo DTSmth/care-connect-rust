@@ -76,7 +76,7 @@ function UnscheduledCard({ shift, onSchedule }) {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function CalendarPage({ employees = [], clients = [], shifts = [] }) {
+export default function CalendarPage({ employees = [], clients = [], shifts = [], onDataChanged }) {
     const navigate = useNavigate();
     const [weekStart, setWeekStart]         = useState(() => startOfWeek(new Date()));
     const [occurrences, setOccurrences]     = useState([]);
@@ -185,12 +185,12 @@ export default function CalendarPage({ employees = [], clients = [], shifts = []
                         <div className="ml-auto flex items-center gap-2">
                             {!loading && openCount > 0 && (
                                 <span className="text-xs font-semibold bg-indigo-100 text-indigo-800 px-2.5 py-1 rounded-full">
-                                    {openCount} open shift{openCount !== 1 ? 's' : ''}
+                                    {openCount} open visit{openCount !== 1 ? 's' : ''}
                                 </span>
                             )}
                             {!loading && openCount === 0 && totalCount > 0 && (
                                 <span className="text-xs font-semibold bg-green-100 text-green-800 px-2.5 py-1 rounded-full">
-                                    All {totalCount} shifts covered ✓
+                                    All {totalCount} visits covered ✓
                                 </span>
                             )}
                         </div>
@@ -321,8 +321,8 @@ export default function CalendarPage({ employees = [], clients = [], shifts = []
                     occurrence={selectedOccurrence}
                     employees={employees}
                     onClose={() => setSelected(null)}
-                    onSaved={() => { setSelected(null); loadCalendar(); }}
-                    onDeleted={() => { setSelected(null); loadCalendar(); }}
+                    onSaved={() => { setSelected(null); loadCalendar(); onDataChanged?.(); }}
+                    onDeleted={() => { setSelected(null); loadCalendar(); onDataChanged?.(); }}
                 />
             )}
         </div>

@@ -126,7 +126,7 @@ export default function OccurrenceDetailModal({ occurrence, employees = [], onCl
                                 </option>
                             ))}
                         </select>
-                        <p className="mt-1.5 text-xs text-gray-400">Applies to all shifts in this series</p>
+                        <p className="mt-1.5 text-xs text-gray-400">Applies to all visits in this shift schedule</p>
                     </div>
 
                     {/* Status */}
@@ -134,7 +134,7 @@ export default function OccurrenceDetailModal({ occurrence, employees = [], onCl
                         <label className="block text-sm font-semibold text-gray-700 mb-2">Status</label>
                         {occurrence.status === 'open' && (
                             <p className="text-xs text-indigo-600 bg-indigo-50 rounded-lg px-3 py-2 mb-2">
-                                This shift is open. Assign an employee above to confirm it, or use <strong>Reassign</strong> on the Shift Board to re-run matching.
+                                This visit is open. Assign an employee above to confirm it, or use <strong>Reassign</strong> on the Shift Board to re-run matching.
                             </p>
                         )}
                         <div className="flex gap-2 flex-wrap">
