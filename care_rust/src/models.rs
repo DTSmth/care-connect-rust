@@ -135,6 +135,8 @@ pub struct ShiftResponse {
     pub recurrence_rule: Option<String>,
     pub series_start: Option<NaiveDate>,
     pub series_end: Option<NaiveDate>,
+    pub location_lat: Option<f64>,
+    pub location_lon: Option<f64>,
 }
 
 /// Lightweight employee summary nested inside ShiftResponse.
@@ -160,6 +162,9 @@ pub struct CreateShiftRequest {
     pub recurrence_rule: Option<String>,
     pub series_start: Option<NaiveDate>,
     pub series_end: Option<NaiveDate>,
+    /// Geocoded from zipcode by the frontend before saving.
+    pub location_lat: Option<f64>,
+    pub location_lon: Option<f64>,
 }
 
 #[derive(Deserialize)]
@@ -213,11 +218,14 @@ pub struct EmployeePreference {
     pub employee_id: i32,
     pub can_do_personal_care: Option<bool>,
     pub can_do_lifting: Option<bool>,
-    pub preferred_zipcode: Option<String>,
+    /// Employee's home zipcode — displayed to the user and used to geocode home_lat/home_lon.
+    pub home_zipcode: Option<String>,
+    pub home_lat: Option<f64>,
+    pub home_lon: Option<f64>,
+    /// If set, shifts beyond this distance are flagged as a conflict in the UI.
+    pub max_distance_miles: Option<i32>,
     pub min_hours: Option<i16>,
     pub max_hours: Option<i16>,
-    /// Day abbreviations the employee is available: MON, TUE, WED, THU, FRI, SAT, SUN.
-    /// NULL or empty = no day preference (all shifts shown).
     pub available_days: Option<Vec<String>>,
 }
 
@@ -226,7 +234,10 @@ pub struct EmployeePreference {
 pub struct UpsertPreferenceRequest {
     pub can_do_personal_care: Option<bool>,
     pub can_do_lifting: Option<bool>,
-    pub preferred_zipcode: Option<String>,
+    pub home_zipcode: Option<String>,
+    pub home_lat: Option<f64>,
+    pub home_lon: Option<f64>,
+    pub max_distance_miles: Option<i32>,
     pub min_hours: Option<i16>,
     pub max_hours: Option<i16>,
     pub available_days: Option<Vec<String>>,
@@ -236,6 +247,9 @@ pub struct UpsertPreferenceRequest {
 #[serde(rename_all = "camelCase")]
 pub struct MatchResult {
     pub score: i32,
+    /// Straight-line distance in miles between employee home and shift location.
+    /// None when coordinates are not yet geocoded for one or both sides.
+    pub distance_miles: Option<f64>,
     pub shift: ShiftResponse,
 }
 

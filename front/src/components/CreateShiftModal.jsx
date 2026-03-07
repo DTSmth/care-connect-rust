@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { geocodeZipcode } from '../utils/geocode';
 
 const DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 const DAY_LABELS = { MON: 'Monday', TUE: 'Tuesday', WED: 'Wednesday', THU: 'Thursday', FRI: 'Friday', SAT: 'Saturday', SUN: 'Sunday' };
@@ -65,9 +66,13 @@ export default function CreateShiftModal({ isOpen, onClose, clients = [], servic
         return null;
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         const recurrenceRule = buildRecurrenceRule();
+
+        // Geocode the shift zipcode so the matching engine can calculate real distances.
+        const coords = await geocodeZipcode(formData.zipcode);
+
         const payload = {
             client:   { clientId: parseInt(formData.clientId, 10) },
             service:  { servicesId: parseInt(formData.serviceId, 10) },
@@ -79,6 +84,8 @@ export default function CreateShiftModal({ isOpen, onClose, clients = [], servic
             recurrenceRule,
             seriesStart: formData.seriesStart || null,
             seriesEnd:   formData.seriesEnd   || null,
+            locationLat: coords?.lat ?? null,
+            locationLon: coords?.lon ?? null,
         };
         onSave(payload);
     };

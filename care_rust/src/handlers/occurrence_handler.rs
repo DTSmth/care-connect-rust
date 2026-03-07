@@ -151,6 +151,8 @@ fn row_to_response(r: OccurrenceRow) -> OccurrenceResponse {
             recurrence_rule: r.recurrence_rule,
             series_start: r.series_start,
             series_end: r.series_end,
+            location_lat: None,
+            location_lon: None,
             client: Client {
                 client_id: r.client_id,
                 first_name: r.first_name,

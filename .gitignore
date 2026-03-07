@@ -1,3 +1,15 @@
 .idea/
 .DS_Store
 *.env
+.env
+.env.*
+
+# Node (root scripts)
+node_modules/
+package-lock.json
+
+# Rust build artifacts
+care_rust/target/
+
+# Frontend build output (handled by front/.gitignore too)
+front/dist/

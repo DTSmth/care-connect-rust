@@ -16,6 +16,8 @@ struct ShiftRow {
     recurrence_rule: Option<String>,
     series_start: Option<NaiveDate>,
     series_end: Option<NaiveDate>,
+    location_lat: Option<f64>,
+    location_lon: Option<f64>,
     // from client JOIN
     client_id: i32,
     first_name: String,
@@ -70,6 +72,8 @@ fn to_response(r: ShiftRow) -> ShiftResponse {
         recurrence_rule: r.recurrence_rule,
         series_start: r.series_start,
         series_end: r.series_end,
+        location_lat: r.location_lat,
+        location_lon: r.location_lon,
     }
 }
 
@@ -78,6 +82,7 @@ const SHIFT_JOIN: &str = "
         s.shift_id, s.total_hours, s.zipcode, s.open_for_matching,
         s.default_start_time, s.default_duration_minutes,
         s.recurrence_rule, s.series_start, s.series_end,
+        s.location_lat, s.location_lon,
         c.client_id, c.first_name, c.last_name, c.has_personal_care, c.has_lifting,
         c.address_1, c.address_2, c.zipcode AS client_zipcode, c.phone_number,
         sv.services_id, sv.service_name,
@@ -152,13 +157,15 @@ pub async fn create_shift(
         "WITH ins AS (
             INSERT INTO shift (client_id, service_id, total_hours, zipcode, open_for_matching,
                                default_start_time, default_duration_minutes,
-                               recurrence_rule, series_start, series_end)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *
+                               recurrence_rule, series_start, series_end,
+                               location_lat, location_lon)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *
          )
          SELECT
              ins.shift_id, ins.total_hours, ins.zipcode, ins.open_for_matching,
              ins.default_start_time, ins.default_duration_minutes,
              ins.recurrence_rule, ins.series_start, ins.series_end,
+             ins.location_lat, ins.location_lon,
              c.client_id, c.first_name, c.last_name, c.has_personal_care, c.has_lifting,
              c.address_1, c.address_2, c.zipcode AS client_zipcode, c.phone_number,
              sv.services_id, sv.service_name,
@@ -180,6 +187,8 @@ pub async fn create_shift(
     .bind(&payload.recurrence_rule)
     .bind(payload.series_start)
     .bind(payload.series_end)
+    .bind(payload.location_lat)
+    .bind(payload.location_lon)
     .fetch_one(&pool)
     .await?;
 
@@ -196,13 +205,15 @@ pub async fn update_shift(
         "WITH upd AS (
             UPDATE shift SET client_id=$1, service_id=$2, total_hours=$3, zipcode=$4, open_for_matching=$5,
                              default_start_time=$6, default_duration_minutes=$7,
-                             recurrence_rule=$8, series_start=$9, series_end=$10
-            WHERE shift_id=$11 RETURNING *
+                             recurrence_rule=$8, series_start=$9, series_end=$10,
+                             location_lat=$11, location_lon=$12
+            WHERE shift_id=$13 RETURNING *
          )
          SELECT
              upd.shift_id, upd.total_hours, upd.zipcode, upd.open_for_matching,
              upd.default_start_time, upd.default_duration_minutes,
              upd.recurrence_rule, upd.series_start, upd.series_end,
+             upd.location_lat, upd.location_lon,
              c.client_id, c.first_name, c.last_name, c.has_personal_care, c.has_lifting,
              c.address_1, c.address_2, c.zipcode AS client_zipcode, c.phone_number,
              sv.services_id, sv.service_name,
@@ -224,6 +235,8 @@ pub async fn update_shift(
     .bind(&payload.recurrence_rule)
     .bind(payload.series_start)
     .bind(payload.series_end)
+    .bind(payload.location_lat)
+    .bind(payload.location_lon)
     .bind(id)
     .fetch_one(&pool)
     .await?;

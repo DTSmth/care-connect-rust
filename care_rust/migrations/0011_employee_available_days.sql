@@ -3,4 +3,4 @@
 -- NULL means no day preference (show all shifts). Empty array is treated the same.
 
 ALTER TABLE employee_preference
-    ADD COLUMN available_days text[] DEFAULT NULL;
+    ADD COLUMN IF NOT EXISTS available_days text[] DEFAULT NULL;

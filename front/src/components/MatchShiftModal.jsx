@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react';
 import { getPreferences, upsertPreferences, getMatches } from '../api/employeeApi';
 import { assignShift } from '../api/shiftApi';
+import { geocodeZipcode } from '../utils/geocode';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const EMPTY_PREFS = {
     canDoPersonalCare: null,
     canDoLifting: null,
-    preferredZipcode: '',
+    homeZipcode: '',
+    maxDistanceMiles: '',
     minHours: '',
     maxHours: '',
     availableDays: [],
@@ -37,8 +39,22 @@ function parseShiftDays(rule) {
  * Each chip has { label, match: 'good' | 'conflict' | 'neutral' }.
  * Only chips where the user has actually set a preference are returned.
  */
-function buildCriteria(shift, client, prefs) {
+function buildCriteria(shift, client, prefs, distanceMiles) {
     const chips = [];
+
+    // Distance chip — replaces exact zipcode matching
+    if (distanceMiles != null) {
+        const dist = Math.round(distanceMiles);
+        const max = prefs.maxDistanceMiles ? parseInt(prefs.maxDistanceMiles) : null;
+        const isOver = max != null && distanceMiles > max;
+        chips.push({
+            label: isOver ? `${dist} mi — over limit` : `~${dist} mi`,
+            match: isOver ? 'conflict' : distanceMiles < 5 ? 'good' : distanceMiles < 15 ? 'neutral' : 'neutral',
+        });
+    } else if (prefs.homeZipcode) {
+        // Shift hasn't been geocoded yet — show zipcode as a soft hint
+        chips.push({ label: `📍 ${shift.zipcode || '—'} (no distance data)`, match: 'neutral' });
+    }
 
     // Hours
     const min = prefs.minHours !== '' ? parseInt(prefs.minHours) : null;
@@ -50,12 +66,6 @@ function buildCriteria(shift, client, prefs) {
             label: `${shift.totalHours}h`,
             match: fits ? 'good' : 'conflict',
         });
-    }
-
-    // Zipcode
-    if (prefs.preferredZipcode) {
-        const fits = shift.zipcode === prefs.preferredZipcode;
-        chips.push({ label: shift.zipcode || '—', match: fits ? 'good' : 'neutral' });
     }
 
     // Personal care — only show chip if the shift requires it
@@ -133,7 +143,7 @@ function MatchCard({ m, prefs, onAssign, assigning }) {
     const availDays = prefs.availableDays ?? [];
     const isDaily = m.shift.recurrenceRule === 'DAILY';
 
-    const chips = buildCriteria(m.shift, m.shift.client, prefs);
+    const chips = buildCriteria(m.shift, m.shift.client, prefs, m.distanceMiles);
     const hasConflict = chips.some(c => c.match === 'conflict');
     const hasGood     = chips.some(c => c.match === 'good');
 
@@ -255,7 +265,8 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
                 setPrefs({
                     canDoPersonalCare: p.canDoPersonalCare ?? null,
                     canDoLifting: p.canDoLifting ?? null,
-                    preferredZipcode: p.preferredZipcode ?? '',
+                    homeZipcode: p.homeZipcode ?? '',
+                    maxDistanceMiles: p.maxDistanceMiles ?? '',
                     minHours: p.minHours ?? '',
                     maxHours: p.maxHours ?? '',
                     availableDays: p.availableDays ?? [],
@@ -270,10 +281,17 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
         setError('');
         setLoading(true);
         try {
+            // Geocode the employee's home zipcode before saving preferences.
+            // This enables real distance scoring in the backend.
+            const coords = await geocodeZipcode(prefs.homeZipcode);
+
             await upsertPreferences(selectedEmployeeId, {
                 canDoPersonalCare: prefs.canDoPersonalCare,
                 canDoLifting: prefs.canDoLifting,
-                preferredZipcode: prefs.preferredZipcode || null,
+                homeZipcode: prefs.homeZipcode || null,
+                homeLat: coords?.lat ?? null,
+                homeLon: coords?.lon ?? null,
+                maxDistanceMiles: prefs.maxDistanceMiles !== '' ? parseInt(prefs.maxDistanceMiles) : null,
                 minHours: prefs.minHours !== '' ? parseInt(prefs.minHours) : null,
                 maxHours: prefs.maxHours !== '' ? parseInt(prefs.maxHours) : null,
                 availableDays: prefs.availableDays.length > 0 ? prefs.availableDays : null,
@@ -316,7 +334,8 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
     const positiveMatches = matches.filter(m => m.score > 0);
     const otherMatches    = matches.filter(m => m.score <= 0);
     const prefsAreSet = prefs.canDoPersonalCare !== null || prefs.canDoLifting !== null ||
-        prefs.preferredZipcode || prefs.minHours !== '' || prefs.maxHours !== '' ||
+        prefs.homeZipcode || prefs.maxDistanceMiles !== '' ||
+        prefs.minHours !== '' || prefs.maxHours !== '' ||
         prefs.availableDays.length > 0;
 
     if (!isOpen) return null;
@@ -378,11 +397,31 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
                             <DayPicker value={prefs.availableDays}
                                 onChange={days => setPrefs({ ...prefs, availableDays: days })} />
 
-                            <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-1">Preferred Zipcode</label>
-                                <input type="text" className="w-full rounded-lg border border-gray-300 p-2.5"
-                                    placeholder="e.g. 30301" value={prefs.preferredZipcode}
-                                    onChange={e => setPrefs({ ...prefs, preferredZipcode: e.target.value })} />
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-1">Home Zipcode</label>
+                                    <input type="text"
+                                        className="w-full rounded-lg border border-gray-300 p-2.5"
+                                        placeholder="e.g. 30301"
+                                        value={prefs.homeZipcode}
+                                        onChange={e => setPrefs({ ...prefs, homeZipcode: e.target.value })}
+                                    />
+                                    <p className="text-xs text-gray-400 mt-0.5">Used to calculate travel distance</p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-1">Max Distance</label>
+                                    <select
+                                        className="w-full rounded-lg border border-gray-300 p-2.5"
+                                        value={prefs.maxDistanceMiles}
+                                        onChange={e => setPrefs({ ...prefs, maxDistanceMiles: e.target.value })}>
+                                        <option value="">Any distance</option>
+                                        <option value="5">Within 5 miles</option>
+                                        <option value="10">Within 10 miles</option>
+                                        <option value="20">Within 20 miles</option>
+                                        <option value="30">Within 30 miles</option>
+                                        <option value="50">Within 50 miles</option>
+                                    </select>
+                                </div>
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">

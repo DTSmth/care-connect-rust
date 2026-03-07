@@ -112,6 +112,8 @@ struct ShiftRow {
     recurrence_rule: Option<String>,
     series_start: Option<chrono::NaiveDate>,
     series_end: Option<chrono::NaiveDate>,
+    location_lat: Option<f64>,
+    location_lon: Option<f64>,
     client_id: i32,
     first_name: String,
     last_name: String,
@@ -153,7 +155,19 @@ fn to_shift_response(r: ShiftRow) -> ShiftResponse {
         recurrence_rule: r.recurrence_rule,
         series_start: r.series_start,
         series_end: r.series_end,
+        location_lat: r.location_lat,
+        location_lon: r.location_lon,
     }
+}
+
+/// Haversine formula — returns straight-line distance in miles.
+fn haversine_miles(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
+    const R: f64 = 3958.8;
+    let dlat = (lat2 - lat1).to_radians();
+    let dlon = (lon2 - lon1).to_radians();
+    let a = (dlat / 2.0).sin().powi(2)
+        + lat1.to_radians().cos() * lat2.to_radians().cos() * (dlon / 2.0).sin().powi(2);
+    R * 2.0 * a.sqrt().asin()
 }
 
 /// GET /employees/:id/preferences
@@ -178,12 +192,16 @@ pub async fn upsert_preferences(
 ) -> Result<(StatusCode, Json<EmployeePreference>), AppError> {
     let pref = sqlx::query_as::<_, EmployeePreference>(
         "INSERT INTO employee_preference
-            (employee_id, can_do_personal_care, can_do_lifting, preferred_zipcode, min_hours, max_hours, available_days)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+            (employee_id, can_do_personal_care, can_do_lifting, home_zipcode, home_lat, home_lon,
+             max_distance_miles, min_hours, max_hours, available_days)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          ON CONFLICT (employee_id) DO UPDATE SET
             can_do_personal_care = EXCLUDED.can_do_personal_care,
             can_do_lifting       = EXCLUDED.can_do_lifting,
-            preferred_zipcode    = EXCLUDED.preferred_zipcode,
+            home_zipcode         = EXCLUDED.home_zipcode,
+            home_lat             = EXCLUDED.home_lat,
+            home_lon             = EXCLUDED.home_lon,
+            max_distance_miles   = EXCLUDED.max_distance_miles,
             min_hours            = EXCLUDED.min_hours,
             max_hours            = EXCLUDED.max_hours,
             available_days       = EXCLUDED.available_days
@@ -192,7 +210,10 @@ pub async fn upsert_preferences(
     .bind(id)
     .bind(payload.can_do_personal_care)
     .bind(payload.can_do_lifting)
-    .bind(&payload.preferred_zipcode)
+    .bind(&payload.home_zipcode)
+    .bind(payload.home_lat)
+    .bind(payload.home_lon)
+    .bind(payload.max_distance_miles)
     .bind(payload.min_hours)
     .bind(payload.max_hours)
     .bind(&payload.available_days)
@@ -217,7 +238,10 @@ pub async fn get_matches(
         employee_id: id,
         can_do_personal_care: None,
         can_do_lifting: None,
-        preferred_zipcode: None,
+        home_zipcode: None,
+        home_lat: None,
+        home_lon: None,
+        max_distance_miles: None,
         min_hours: None,
         max_hours: None,
         available_days: None,
@@ -231,6 +255,7 @@ pub async fn get_matches(
             s.shift_id, s.total_hours, s.zipcode, s.open_for_matching,
             s.default_start_time, s.default_duration_minutes,
             s.recurrence_rule, s.series_start, s.series_end,
+            s.location_lat, s.location_lon,
             c.client_id, c.first_name, c.last_name, c.has_personal_care, c.has_lifting,
             c.address_1, c.address_2, c.zipcode AS client_zipcode, c.phone_number,
             sv.services_id, sv.service_name
@@ -247,9 +272,29 @@ pub async fn get_matches(
         .map(|r| {
             let mut score: i32 = 0;
 
-            if let Some(ref pz) = pref.preferred_zipcode {
-                if &r.zipcode == pz {
-                    score += 3;
+            // Distance scoring — used when both employee home and shift location are geocoded.
+            // Scoring bands: <5mi=+4, <10=+3, <20=+2, <30=+1; over max_distance=-3.
+            // Falls back to partial zipcode match when coordinates are unavailable.
+            let distance_miles = match (pref.home_lat, pref.home_lon, r.location_lat, r.location_lon) {
+                (Some(hlat), Some(hlon), Some(slat), Some(slon)) => {
+                    Some(haversine_miles(hlat, hlon, slat, slon))
+                }
+                _ => None,
+            };
+
+            if let Some(dist) = distance_miles {
+                score += if dist < 5.0 { 4 }
+                         else if dist < 10.0 { 3 }
+                         else if dist < 20.0 { 2 }
+                         else if dist < 30.0 { 1 }
+                         else { 0 };
+                if let Some(max) = pref.max_distance_miles {
+                    if dist > max as f64 { score -= 3; }
+                }
+            } else if let Some(ref hz) = pref.home_zipcode {
+                // Fallback: first-3-digit zipcode proximity (same area code = slight bonus)
+                if r.zipcode.len() >= 3 && hz.len() >= 3 && r.zipcode[..3] == hz[..3] {
+                    score += 1;
                 }
             }
 
@@ -261,24 +306,14 @@ pub async fn get_matches(
             }
 
             // Bonus for confirmed capability matches
-            if r.has_personal_care && pref.can_do_personal_care == Some(true) {
-                score += 1;
-            }
-            if r.has_lifting && pref.can_do_lifting == Some(true) {
-                score += 1;
-            }
+            if r.has_personal_care && pref.can_do_personal_care == Some(true) { score += 1; }
+            if r.has_lifting       && pref.can_do_lifting       == Some(true) { score += 1; }
 
             // Penalty for known conflicts — shift stays visible but ranks lower
-            if r.has_personal_care && pref.can_do_personal_care == Some(false) {
-                score -= 2;
-            }
-            if r.has_lifting && pref.can_do_lifting == Some(false) {
-                score -= 2;
-            }
+            if r.has_personal_care && pref.can_do_personal_care == Some(false) { score -= 2; }
+            if r.has_lifting       && pref.can_do_lifting       == Some(false) { score -= 2; }
 
-            // Day-of-week availability scoring
-            // Each overlapping day earns +1 (capped at +3 to keep scoring balanced).
-            // Zero overlap gives -1 as a mild signal (not a hard filter).
+            // Day-of-week availability scoring (capped at +3)
             if let Some(ref avail) = pref.available_days {
                 if !avail.is_empty() {
                     let shift_days = shift_recurrence_days(
@@ -289,17 +324,14 @@ pub async fn get_matches(
                             .iter()
                             .filter(|d| avail.iter().any(|a| a.eq_ignore_ascii_case(d)))
                             .count() as i32;
-                        if overlap == 0 {
-                            score -= 1;
-                        } else {
-                            score += overlap.min(3);
-                        }
+                        if overlap == 0 { score -= 1; } else { score += overlap.min(3); }
                     }
                 }
             }
 
             MatchResult {
                 score,
+                distance_miles,
                 shift: to_shift_response(r),
             }
         })
