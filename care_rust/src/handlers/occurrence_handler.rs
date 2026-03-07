@@ -246,11 +246,12 @@ async fn generate_occurrences_for_window(
         recurrence_rule: Option<String>,
         series_start: Option<NaiveDate>,
         series_end: Option<NaiveDate>,
+        assigned_employee_id: Option<i32>,
     }
 
     let series = sqlx::query_as::<_, ShiftSeries>(
         "SELECT shift_id, default_start_time, default_duration_minutes,
-                recurrence_rule, series_start, series_end
+                recurrence_rule, series_start, series_end, assigned_employee_id
          FROM shift
          WHERE recurrence_rule IS NOT NULL
            AND series_start IS NOT NULL
@@ -282,17 +283,20 @@ async fn generate_occurrences_for_window(
         );
 
         for (occ_start, occ_end) in slots {
+            let status = if s.assigned_employee_id.is_some() { "confirmed" } else { "open" };
             sqlx::query(
-                "INSERT INTO shift_occurrence (shift_id, scheduled_start, scheduled_end, status)
-                 SELECT $1, $2, $3, 'open'
+                "INSERT INTO shift_occurrence (shift_id, employee_id, scheduled_start, scheduled_end, status)
+                 SELECT $1, $2, $3, $4, $5
                  WHERE NOT EXISTS (
                      SELECT 1 FROM shift_occurrence
-                     WHERE shift_id = $1 AND scheduled_start = $2
+                     WHERE shift_id = $1 AND scheduled_start = $3
                  )",
             )
             .bind(s.shift_id)
+            .bind(s.assigned_employee_id)
             .bind(occ_start)
             .bind(occ_end)
+            .bind(status)
             .execute(pool)
             .await?;
         }
@@ -377,6 +381,7 @@ pub async fn update_occurrence(
     Path(id): Path<i32>,
     Json(payload): Json<UpdateOccurrenceRequest>,
 ) -> Result<Json<OccurrenceResponse>, AppError> {
+    // 1. Update this occurrence's own fields.
     sqlx::query(
         "UPDATE shift_occurrence
          SET employee_id     = $1,
@@ -395,11 +400,47 @@ pub async fn update_occurrence(
     .execute(&pool)
     .await?;
 
+    // 2. Fetch the updated row to obtain shift_id.
     let row = sqlx::query_as::<_, OccurrenceRow>(&format!(
         "{OCCURRENCE_JOIN} WHERE o.occurrence_id = $1"
     ))
     .bind(id)
     .fetch_one(&pool)
+    .await?;
+
+    // 3. Cascade the employee change to the whole series.
+    //    Status, notes, and times are per-occurrence concerns.
+    //    Employee assignment is series-level: whoever works this shift works all
+    //    non-cancelled occurrences, and the shift record must reflect it.
+    let series_status = if payload.employee_id.is_some() { "confirmed" } else { "open" };
+
+    sqlx::query(
+        "UPDATE shift
+         SET assigned_employee_id = $1,
+             open_for_matching    = $2
+         WHERE shift_id = $3",
+    )
+    .bind(payload.employee_id)
+    .bind(payload.employee_id.is_none())
+    .bind(row.shift_id)
+    .execute(&pool)
+    .await?;
+
+    // Update every other non-cancelled occurrence in the series.
+    // The occurrence we just saved is excluded — it already has the correct employee
+    // and its status was set intentionally (e.g. user may have cancelled it).
+    sqlx::query(
+        "UPDATE shift_occurrence
+         SET employee_id = $1, status = $2
+         WHERE shift_id = $3
+           AND status != 'cancelled'
+           AND occurrence_id != $4",
+    )
+    .bind(payload.employee_id)
+    .bind(series_status)
+    .bind(row.shift_id)
+    .bind(id)
+    .execute(&pool)
     .await?;
 
     Ok(Json(row_to_response(row)))

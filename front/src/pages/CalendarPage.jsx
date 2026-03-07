@@ -46,6 +46,12 @@ const STATUS_DOT = {
     cancelled: 'bg-red-400',
 };
 
+const STATUS_RING = {
+    open:      'ring-indigo-400',
+    confirmed: 'ring-green-500',
+    cancelled: 'ring-red-400',
+};
+
 // ─── Unscheduled shift card ───────────────────────────────────────────────────
 
 function UnscheduledCard({ shift, onSchedule }) {
@@ -78,6 +84,7 @@ export default function CalendarPage({ employees = [], clients = [], shifts = []
     const [error, setError]                 = useState(null);
     const [selectedOccurrence, setSelected] = useState(null);
     const [panelOpen, setPanelOpen]         = useState(true);
+    const [hoveredShiftId, setHoveredShiftId] = useState(null);
 
     // Filters
     const [filterEmployee, setFilterEmployee] = useState('');
@@ -261,11 +268,21 @@ export default function CalendarPage({ employees = [], clients = [], shifts = []
                                                 dayOccs.map(occ => {
                                                     const isOpen = !occ.employee && occ.status !== 'cancelled';
                                                     const cardStyle = STATUS_CARD[occ.status] ?? STATUS_CARD.open;
+                                                    const ringStyle = STATUS_RING[occ.status] ?? STATUS_RING.open;
+                                                    const isSeriesActive = hoveredShiftId !== null && occ.shift?.shiftId === hoveredShiftId;
+                                                    const isSeriesDimmed = hoveredShiftId !== null && occ.shift?.shiftId !== hoveredShiftId;
+                                                    const seriesClass = isSeriesActive
+                                                        ? `ring-2 ring-offset-1 ${ringStyle} shadow-lg -translate-y-0.5 scale-[1.02] relative z-10`
+                                                        : isSeriesDimmed
+                                                        ? 'opacity-40 scale-[0.98]'
+                                                        : 'hover:shadow-md hover:-translate-y-0.5';
                                                     return (
                                                         <button
                                                             key={occ.occurrenceId}
                                                             onClick={() => setSelected(occ)}
-                                                            className={`w-full text-left rounded-lg border px-2.5 py-2 transition-all hover:shadow-md hover:-translate-y-0.5 ${cardStyle}`}
+                                                            onMouseEnter={() => setHoveredShiftId(occ.shift?.shiftId ?? null)}
+                                                            onMouseLeave={() => setHoveredShiftId(null)}
+                                                            className={`w-full text-left rounded-lg border px-2.5 py-2 transition-all ${cardStyle} ${seriesClass}`}
                                                         >
                                                             <p className="text-xs font-semibold opacity-80 leading-tight">
                                                                 {fmtTime(occ.scheduledStart)} – {fmtTime(occ.scheduledEnd)}

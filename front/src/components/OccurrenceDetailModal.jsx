@@ -29,7 +29,15 @@ export default function OccurrenceDetailModal({ occurrence, employees = [], onCl
         }
     }, [occurrence]);
 
-    if (!occurrence) return null;
+    const handleEmployeeChange = (e) => {
+        const val = e.target.value;
+        setEmployeeId(val);
+        // Keep status in sync: assigning confirms the series, unassigning reopens it.
+        // Don't override if the user has explicitly set this occurrence to cancelled.
+        if (status !== 'cancelled') {
+            setStatus(val ? 'confirmed' : 'open');
+        }
+    };
 
     const { shift } = occurrence;
     const client = shift?.client;
@@ -109,7 +117,7 @@ export default function OccurrenceDetailModal({ occurrence, employees = [], onCl
                         <select
                             className="w-full rounded-lg border border-gray-300 p-2.5 text-sm focus:ring-2 focus:ring-indigo-500"
                             value={employeeId}
-                            onChange={e => setEmployeeId(e.target.value)}
+                            onChange={handleEmployeeChange}
                         >
                             <option value="">— Unassigned —</option>
                             {employees.map(emp => (
@@ -118,6 +126,7 @@ export default function OccurrenceDetailModal({ occurrence, employees = [], onCl
                                 </option>
                             ))}
                         </select>
+                        <p className="mt-1.5 text-xs text-gray-400">Applies to all shifts in this series</p>
                     </div>
 
                     {/* Status */}

@@ -228,6 +228,19 @@ pub async fn update_shift(
     .fetch_one(&pool)
     .await?;
 
+    // Purge all future non-cancelled occurrences so the new recurrence rule,
+    // schedule, and series bounds take effect cleanly on next calendar load.
+    // Cancelled occurrences are intentional records and are preserved.
+    sqlx::query(
+        "DELETE FROM shift_occurrence
+         WHERE shift_id = $1
+           AND status != 'cancelled'
+           AND scheduled_start >= NOW()",
+    )
+    .bind(id)
+    .execute(&pool)
+    .await?;
+
     Ok(Json(to_response(row)))
 }
 
@@ -260,7 +273,7 @@ pub async fn assign_shift(
     sqlx::query(
         "UPDATE shift_occurrence
          SET employee_id = $1, status = 'confirmed'
-         WHERE shift_id = $2 AND status = 'open'"
+         WHERE shift_id = $2 AND status != 'cancelled'"
     )
     .bind(payload.employee_id)
     .bind(id)
@@ -291,7 +304,7 @@ pub async fn set_matching(
         sqlx::query(
             "UPDATE shift_occurrence
              SET employee_id = NULL, status = 'open'
-             WHERE shift_id = $1 AND status = 'confirmed'"
+             WHERE shift_id = $1 AND status != 'cancelled'"
         )
         .bind(id)
         .execute(&pool).await?;
