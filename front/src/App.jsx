@@ -6,6 +6,7 @@ import ClientsPage from './pages/ClientsPage';
 import ShiftsPage from "./pages/ShiftsPage.jsx";
 import ReportsPage from "./pages/ReportsPage.jsx";
 import EmployeesPage from "./pages/EmployeesPage.jsx";
+import CalendarPage from "./pages/CalendarPage.jsx";
 import ProtectedRoute from './auth/ProtectedRoute';
 import { AuthProvider, useAuth } from './auth/AuthContext';
 import Navbar from './components/Navbar';
@@ -74,6 +75,9 @@ function AppContent() {
                     />
                 } />
                 <Route path="/employees" element={<EmployeesPage />} />
+                <Route path="/calendar" element={
+                    <CalendarPage employees={employees} clients={clients} shifts={shifts} />
+                } />
                 <Route path="/reports" element={<ReportsPage clients={clients} shifts={shifts} />} />
             </Route>
 

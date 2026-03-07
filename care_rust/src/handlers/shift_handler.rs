@@ -1,15 +1,21 @@
 use axum::{extract::{State, Path, Query}, http::StatusCode, Json};
-use sqlx::{FromRow, PgPool};
+use chrono::{NaiveDate, NaiveTime};
+use sqlx::PgPool;
 use crate::errors::AppError;
-use crate::models::{Client, CreateShiftRequest, Service, ShiftFilters, ShiftResponse};
+use crate::models::{AssignedEmployee, AssignShiftRequest, Client, CreateShiftRequest, Service, SetMatchingRequest, ShiftFilters, ShiftResponse};
 
 /// Flat DB row returned by the JOIN query — converted to ShiftResponse before sending.
-#[derive(FromRow)]
+#[derive(sqlx::FromRow)]
 struct ShiftRow {
     shift_id: i32,
     total_hours: i16,
     zipcode: String,
-    available: bool,
+    open_for_matching: bool,
+    default_start_time: Option<NaiveTime>,
+    default_duration_minutes: Option<i16>,
+    recurrence_rule: Option<String>,
+    series_start: Option<NaiveDate>,
+    series_end: Option<NaiveDate>,
     // from client JOIN
     client_id: i32,
     first_name: String,
@@ -23,9 +29,21 @@ struct ShiftRow {
     // from service JOIN
     services_id: i32,
     service_name: String,
+    // from assigned employee LEFT JOIN
+    assigned_employee_id: Option<i32>,
+    emp_first_name: Option<String>,
+    emp_last_name: Option<String>,
 }
 
 fn to_response(r: ShiftRow) -> ShiftResponse {
+    let assigned_employee = match (r.assigned_employee_id, r.emp_first_name, r.emp_last_name) {
+        (Some(id), Some(first), Some(last)) => Some(AssignedEmployee {
+            employee_id: id,
+            first_name: first,
+            last_name: last,
+        }),
+        _ => None,
+    };
     ShiftResponse {
         shift_id: r.shift_id,
         client: Client {
@@ -45,19 +63,31 @@ fn to_response(r: ShiftRow) -> ShiftResponse {
         },
         total_hours: r.total_hours,
         zipcode: r.zipcode,
-        available: r.available,
+        open_for_matching: r.open_for_matching,
+        assigned_employee,
+        default_start_time: r.default_start_time,
+        default_duration_minutes: r.default_duration_minutes,
+        recurrence_rule: r.recurrence_rule,
+        series_start: r.series_start,
+        series_end: r.series_end,
     }
 }
 
 const SHIFT_JOIN: &str = "
     SELECT
-        s.shift_id, s.total_hours, s.zipcode, s.available,
+        s.shift_id, s.total_hours, s.zipcode, s.open_for_matching,
+        s.default_start_time, s.default_duration_minutes,
+        s.recurrence_rule, s.series_start, s.series_end,
         c.client_id, c.first_name, c.last_name, c.has_personal_care, c.has_lifting,
         c.address_1, c.address_2, c.zipcode AS client_zipcode, c.phone_number,
-        sv.services_id, sv.service_name
+        sv.services_id, sv.service_name,
+        e.employee_id AS assigned_employee_id,
+        e.first_name  AS emp_first_name,
+        e.last_name   AS emp_last_name
     FROM shift s
     JOIN client  c  ON s.client_id  = c.client_id
-    JOIN service sv ON s.service_id = sv.services_id";
+    JOIN service sv ON s.service_id = sv.services_id
+    LEFT JOIN employee e ON s.assigned_employee_id = e.employee_id";
 
 // GET /shifts with filtering
 pub async fn get_shifts(
@@ -68,7 +98,7 @@ pub async fn get_shifts(
         filters.client_id,
         filters.service_id,
         filters.zipcode,
-        filters.available,
+        filters.open_for_matching,
         filters.min_hours,
         filters.max_hours,
     ) {
@@ -85,7 +115,7 @@ pub async fn get_shifts(
                 .bind(z).fetch_all(&pool).await
         }
         (_, _, _, Some(true), _, _) => {
-            sqlx::query_as::<_, ShiftRow>(&format!("{SHIFT_JOIN} WHERE s.available = true"))
+            sqlx::query_as::<_, ShiftRow>(&format!("{SHIFT_JOIN} WHERE s.open_for_matching = true"))
                 .fetch_all(&pool).await
         }
         (_, _, _, _, Some(min), Some(max)) => {
@@ -120,23 +150,36 @@ pub async fn create_shift(
 ) -> Result<(StatusCode, Json<ShiftResponse>), AppError> {
     let row = sqlx::query_as::<_, ShiftRow>(&format!(
         "WITH ins AS (
-            INSERT INTO shift (client_id, service_id, total_hours, zipcode, available)
-            VALUES ($1, $2, $3, $4, $5) RETURNING *
+            INSERT INTO shift (client_id, service_id, total_hours, zipcode, open_for_matching,
+                               default_start_time, default_duration_minutes,
+                               recurrence_rule, series_start, series_end)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *
          )
          SELECT
-             ins.shift_id, ins.total_hours, ins.zipcode, ins.available,
+             ins.shift_id, ins.total_hours, ins.zipcode, ins.open_for_matching,
+             ins.default_start_time, ins.default_duration_minutes,
+             ins.recurrence_rule, ins.series_start, ins.series_end,
              c.client_id, c.first_name, c.last_name, c.has_personal_care, c.has_lifting,
              c.address_1, c.address_2, c.zipcode AS client_zipcode, c.phone_number,
-             sv.services_id, sv.service_name
+             sv.services_id, sv.service_name,
+             e.employee_id AS assigned_employee_id,
+             e.first_name  AS emp_first_name,
+             e.last_name   AS emp_last_name
          FROM ins
          JOIN client  c  ON ins.client_id  = c.client_id
-         JOIN service sv ON ins.service_id = sv.services_id"
+         JOIN service sv ON ins.service_id = sv.services_id
+         LEFT JOIN employee e ON ins.assigned_employee_id = e.employee_id"
     ))
     .bind(payload.client.client_id)
     .bind(payload.service.services_id)
     .bind(payload.total_hours)
     .bind(&payload.zipcode)
-    .bind(payload.available)
+    .bind(payload.open_for_matching)
+    .bind(payload.default_start_time)
+    .bind(payload.default_duration_minutes)
+    .bind(&payload.recurrence_rule)
+    .bind(payload.series_start)
+    .bind(payload.series_end)
     .fetch_one(&pool)
     .await?;
 
@@ -151,23 +194,36 @@ pub async fn update_shift(
 ) -> Result<Json<ShiftResponse>, AppError> {
     let row = sqlx::query_as::<_, ShiftRow>(
         "WITH upd AS (
-            UPDATE shift SET client_id=$1, service_id=$2, total_hours=$3, zipcode=$4, available=$5
-            WHERE shift_id=$6 RETURNING *
+            UPDATE shift SET client_id=$1, service_id=$2, total_hours=$3, zipcode=$4, open_for_matching=$5,
+                             default_start_time=$6, default_duration_minutes=$7,
+                             recurrence_rule=$8, series_start=$9, series_end=$10
+            WHERE shift_id=$11 RETURNING *
          )
          SELECT
-             upd.shift_id, upd.total_hours, upd.zipcode, upd.available,
+             upd.shift_id, upd.total_hours, upd.zipcode, upd.open_for_matching,
+             upd.default_start_time, upd.default_duration_minutes,
+             upd.recurrence_rule, upd.series_start, upd.series_end,
              c.client_id, c.first_name, c.last_name, c.has_personal_care, c.has_lifting,
              c.address_1, c.address_2, c.zipcode AS client_zipcode, c.phone_number,
-             sv.services_id, sv.service_name
+             sv.services_id, sv.service_name,
+             e.employee_id AS assigned_employee_id,
+             e.first_name  AS emp_first_name,
+             e.last_name   AS emp_last_name
          FROM upd
          JOIN client  c  ON upd.client_id  = c.client_id
-         JOIN service sv ON upd.service_id = sv.services_id",
+         JOIN service sv ON upd.service_id = sv.services_id
+         LEFT JOIN employee e ON upd.assigned_employee_id = e.employee_id",
     )
     .bind(payload.client.client_id)
     .bind(payload.service.services_id)
     .bind(payload.total_hours)
     .bind(&payload.zipcode)
-    .bind(payload.available)
+    .bind(payload.open_for_matching)
+    .bind(payload.default_start_time)
+    .bind(payload.default_duration_minutes)
+    .bind(&payload.recurrence_rule)
+    .bind(payload.series_start)
+    .bind(payload.series_end)
     .bind(id)
     .fetch_one(&pool)
     .await?;
@@ -183,6 +239,63 @@ pub async fn delete_shift(
     sqlx::query("DELETE FROM shift WHERE shift_id = $1")
         .bind(id)
         .execute(&pool).await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// POST /shifts/:id/assign
+// Atomically assigns an employee to a shift: turns off matching and confirms all open occurrences.
+pub async fn assign_shift(
+    State(pool): State<PgPool>,
+    Path(id): Path<i32>,
+    Json(payload): Json<AssignShiftRequest>,
+) -> Result<StatusCode, AppError> {
+    sqlx::query(
+        "UPDATE shift SET open_for_matching = false, assigned_employee_id = $1 WHERE shift_id = $2"
+    )
+    .bind(payload.employee_id)
+    .bind(id)
+    .execute(&pool).await?;
+
+    sqlx::query(
+        "UPDATE shift_occurrence
+         SET employee_id = $1, status = 'confirmed'
+         WHERE shift_id = $2 AND status = 'open'"
+    )
+    .bind(payload.employee_id)
+    .bind(id)
+    .execute(&pool).await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// PATCH /shifts/:id/matching
+// Toggles open_for_matching. When re-opening (true), also clears the assigned
+// employee and resets all confirmed occurrences back to open.
+pub async fn set_matching(
+    State(pool): State<PgPool>,
+    Path(id): Path<i32>,
+    Json(payload): Json<SetMatchingRequest>,
+) -> Result<StatusCode, AppError> {
+    sqlx::query(
+        "UPDATE shift SET open_for_matching = $1,
+         assigned_employee_id = CASE WHEN $1 THEN NULL ELSE assigned_employee_id END
+         WHERE shift_id = $2"
+    )
+    .bind(payload.open_for_matching)
+    .bind(id)
+    .execute(&pool).await?;
+
+    // When re-opening for matching, reset future confirmed occurrences to open
+    if payload.open_for_matching {
+        sqlx::query(
+            "UPDATE shift_occurrence
+             SET employee_id = NULL, status = 'open'
+             WHERE shift_id = $1 AND status = 'confirmed'"
+        )
+        .bind(id)
+        .execute(&pool).await?;
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }

@@ -88,7 +88,12 @@ struct ShiftRow {
     shift_id: i32,
     total_hours: i16,
     zipcode: String,
-    available: bool,
+    open_for_matching: bool,
+    default_start_time: Option<chrono::NaiveTime>,
+    default_duration_minutes: Option<i16>,
+    recurrence_rule: Option<String>,
+    series_start: Option<chrono::NaiveDate>,
+    series_end: Option<chrono::NaiveDate>,
     client_id: i32,
     first_name: String,
     last_name: String,
@@ -123,7 +128,13 @@ fn to_shift_response(r: ShiftRow) -> ShiftResponse {
         },
         total_hours: r.total_hours,
         zipcode: r.zipcode,
-        available: r.available,
+        open_for_matching: r.open_for_matching,
+        assigned_employee: None,
+        default_start_time: r.default_start_time,
+        default_duration_minutes: r.default_duration_minutes,
+        recurrence_rule: r.recurrence_rule,
+        series_start: r.series_start,
+        series_end: r.series_end,
     }
 }
 
@@ -184,14 +195,16 @@ pub async fn get_matches(
 
     let rows = sqlx::query_as::<_, ShiftRow>(
         "SELECT
-            s.shift_id, s.total_hours, s.zipcode, s.available,
+            s.shift_id, s.total_hours, s.zipcode, s.open_for_matching,
+            s.default_start_time, s.default_duration_minutes,
+            s.recurrence_rule, s.series_start, s.series_end,
             c.client_id, c.first_name, c.last_name, c.has_personal_care, c.has_lifting,
             c.address_1, c.address_2, c.zipcode AS client_zipcode, c.phone_number,
             sv.services_id, sv.service_name
          FROM shift s
          JOIN client  c  ON s.client_id  = c.client_id
          JOIN service sv ON s.service_id = sv.services_id
-         WHERE s.available = true
+         WHERE s.open_for_matching = true
            AND (c.has_personal_care = false OR $1 = true)
            AND (c.has_lifting       = false OR $2 = true)",
     )

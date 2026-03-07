@@ -6,11 +6,11 @@ mod auth;
 use axum::{routing::get, Json, Router};
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
-use axum::routing::{delete, post, put};
+use axum::routing::{delete, patch, post, put};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use serde::Serialize;
-use crate::handlers::{auth_handler, client_handler, employee_handler, service_handler, shift_handler, user_handler};
+use crate::handlers::{auth_handler, client_handler, employee_handler, occurrence_handler, service_handler, shift_handler, user_handler};
 
 #[derive(Serialize)]
 struct Status {
@@ -82,6 +82,17 @@ async fn main() {
         .route("/shifts/:id", get(shift_handler::get_shift_by_id))
         .route("/shifts/:id", put(shift_handler::update_shift))
         .route("/shifts/:id", delete(shift_handler::delete_shift))
+        .route("/shifts/:id/assign", post(shift_handler::assign_shift))
+        .route("/shifts/:id/matching", patch(shift_handler::set_matching))
+        // Shift occurrence routes
+        .route("/shifts/:id/occurrences", get(occurrence_handler::get_shift_occurrences))
+        .route("/shifts/:id/occurrences", post(occurrence_handler::create_occurrence))
+        // Calendar view
+        .route("/calendar", get(occurrence_handler::get_calendar))
+        // Individual occurrence management
+        .route("/occurrences/:id", get(occurrence_handler::get_occurrence_by_id))
+        .route("/occurrences/:id", put(occurrence_handler::update_occurrence))
+        .route("/occurrences/:id", delete(occurrence_handler::delete_occurrence))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .with_state(pool);

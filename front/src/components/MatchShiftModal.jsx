@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { getPreferences, upsertPreferences, getMatches } from '../api/employeeApi';
-import { updateShift } from '../api/shiftApi';
+import { assignShift } from '../api/shiftApi';
 
 const EMPTY_PREFS = {
     canDoPersonalCare: false,
@@ -13,7 +13,7 @@ const EMPTY_PREFS = {
 function ScoreBadge({ score }) {
     const color =
         score >= 6 ? 'bg-green-100 text-green-800' :
-        score >= 3 ? 'bg-yellow-100 text-yellow-800' :
+        score >= 3 ? 'bg-blue-100 text-blue-800' :
                      'bg-gray-100 text-gray-600';
     return (
         <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${color}`}>
@@ -76,13 +76,7 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
     const handleAssign = async (match) => {
         setAssigning(match.shift.shiftId);
         try {
-            await updateShift(match.shift.shiftId, {
-                client: { clientId: match.shift.client.clientId },
-                service: { servicesId: match.shift.service.servicesId },
-                totalHours: match.shift.totalHours,
-                zipcode: match.shift.zipcode,
-                available: false,
-            });
+            await assignShift(match.shift.shiftId, { employeeId: parseInt(selectedEmployeeId) });
             onAssigned();
             handleClose();
         } catch (err) {
@@ -235,6 +229,9 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
                                                 </p>
                                                 <p className="text-xs text-gray-500">
                                                     {m.shift.service.serviceName} · {m.shift.totalHours}h · {m.shift.zipcode}
+                                                    {m.shift.defaultStartTime && (
+                                                        <> · <span className="text-indigo-600 font-medium">{m.shift.defaultStartTime.slice(0,5)}</span></>
+                                                    )}
                                                 </p>
                                                 {(m.shift.client.hasPersonalCare || m.shift.client.hasLifting) && (
                                                     <p className="text-xs text-gray-400 mt-0.5">

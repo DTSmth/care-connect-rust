@@ -17,6 +17,7 @@ export default function Navbar() {
         { name: 'Clients',   path: '/clients' },
         { name: 'Employees', path: '/employees' },
         { name: 'Shifts',    path: '/shifts' },
+        { name: 'Calendar',  path: '/calendar' },
         { name: 'Reports',   path: '/reports' },
     ];
 

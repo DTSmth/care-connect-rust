@@ -1,9 +1,34 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import ReportStats from '../components/ReportStats';
 import ReportView from '../components/ReportView';
+import { getCalendar } from '../api/calendarApi';
+
+function getMonday(d) {
+    const day = d.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    const mon = new Date(d);
+    mon.setDate(d.getDate() + diff);
+    mon.setHours(0, 0, 0, 0);
+    return mon;
+}
+
+const fmtDate = d => d.toISOString().slice(0, 10);
 
 export default function ReportsPage({ clients, shifts }) {
     const [activeReport, setActiveReport] = useState(null);
+    const [weekStart, setWeekStart] = useState(() => getMonday(new Date()));
+    const [weekOccurrences, setWeekOccurrences] = useState([]);
+
+    useEffect(() => {
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekStart.getDate() + 6);
+        getCalendar(fmtDate(weekStart), fmtDate(weekEnd))
+            .then(r => setWeekOccurrences(r.data))
+            .catch(() => setWeekOccurrences([]));
+    }, [weekStart]);
+
+    const prevWeek = () => setWeekStart(d => { const n = new Date(d); n.setDate(d.getDate() - 7); return n; });
+    const nextWeek = () => setWeekStart(d => { const n = new Date(d); n.setDate(d.getDate() + 7); return n; });
 
     // This configuration defines what data goes into each formal report table
     const reportTypes = [
@@ -23,9 +48,24 @@ export default function ReportsPage({ clients, shifts }) {
             title: 'Shift Availability Summary',
             columns: [
                 { header: 'Service', render: (r) => r.service?.serviceName },
+                { header: 'Client', render: (r) => r.client ? `${r.client.firstName} ${r.client.lastName}` : '—' },
                 { header: 'Zip', key: 'zipcode' },
-                { header: 'Hours', key: 'totalHours' },
-                { header: 'Status', render: (r) => r.available ? 'Available' : 'Filled' }
+                { header: 'Schedule', render: (r) => {
+                    if (!r.defaultStartTime) return `${r.totalHours}h (no time set)`;
+                    const [h, m] = r.defaultStartTime.split(':');
+                    const hour = parseInt(h, 10);
+                    const label = `${hour % 12 || 12}:${m} ${hour >= 12 ? 'PM' : 'AM'}`;
+                    const dur = r.defaultDurationMinutes
+                        ? ` · ${Math.floor(r.defaultDurationMinutes/60)}h${r.defaultDurationMinutes%60 ? ` ${r.defaultDurationMinutes%60}m` : ''}`
+                        : '';
+                    return `${label}${dur}`;
+                }},
+                { header: 'Recurrence', render: (r) => {
+                    if (!r.recurrenceRule) return 'One-time';
+                    if (r.recurrenceRule === 'DAILY') return 'Daily';
+                    return r.recurrenceRule.replace('WEEKLY:', '').split(',').join(', ');
+                }},
+                { header: 'Status', render: (r) => r.openForMatching ? 'Available' : 'Filled' }
             ],
             data: shifts
         }
@@ -56,7 +96,13 @@ export default function ReportsPage({ clients, shifts }) {
 
                 {/* 2. Top-Level Stats - Hidden when printing */}
                 <div className="print:hidden">
-                    <ReportStats shifts={shifts} />
+                    <ReportStats
+                        shifts={shifts}
+                        occurrences={weekOccurrences}
+                        weekStart={weekStart}
+                        onPrevWeek={prevWeek}
+                        onNextWeek={nextWeek}
+                    />
                 </div>
 
                 {/* 3. Report Selector Tabs - Hidden when printing */}

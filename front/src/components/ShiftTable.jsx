@@ -1,4 +1,38 @@
-export default function ShiftTable({ shifts, onDelete, onEdit }) {
+import { setShiftMatching } from '../api/shiftApi';
+
+function fmtTime(t) {
+    if (!t) return null;
+    // t is "HH:MM:SS" from the backend
+    const [h, m] = t.split(':');
+    const hour = parseInt(h, 10);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const h12  = hour % 12 || 12;
+    return `${h12}:${m} ${ampm}`;
+}
+
+function fmtDuration(minutes) {
+    if (!minutes) return null;
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    if (h && m) return `${h}h ${m}m`;
+    if (h)      return `${h}h`;
+    return `${m}m`;
+}
+
+function RecurrenceBadge({ rule }) {
+    if (!rule) return null;
+    let label = '';
+    if (rule === 'DAILY') label = 'Daily';
+    else if (rule.startsWith('WEEKLY:')) label = rule.replace('WEEKLY:', '').split(',').join(' ');
+    else label = rule;
+    return (
+        <span className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 mt-1">
+            ↻ {label}
+        </span>
+    );
+}
+
+export default function ShiftTable({ shifts, onDelete, onEdit, onMatchingToggled, onAssign }) {
     return (
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
             <table className="w-full border-collapse text-left text-sm text-gray-500">
@@ -6,7 +40,7 @@ export default function ShiftTable({ shifts, onDelete, onEdit }) {
                 <tr>
                     <th className="px-6 py-4">Service Type & Client</th>
                     <th className="px-6 py-4">Location (Zip)</th>
-                    <th className="px-6 py-4">Duration</th>
+                    <th className="px-6 py-4">Schedule</th>
                     <th className="px-6 py-4">Status</th>
                     <th className="px-6 py-4 text-right">Actions</th>
                 </tr>
@@ -45,30 +79,65 @@ export default function ShiftTable({ shifts, onDelete, onEdit }) {
                                 {s.zipcode}
                             </td>
 
-                            {/* Total Hours */}
+                            {/* Schedule: time + duration + recurrence */}
                             <td className="px-6 py-4">
-                                <span className="text-gray-900 font-semibold">{s.totalHours}</span>
-                                <span className="text-gray-400 ml-1">hrs</span>
+                                {s.defaultStartTime ? (
+                                    <div>
+                                        <span className="text-gray-900 font-semibold">{fmtTime(s.defaultStartTime)}</span>
+                                        {s.defaultDurationMinutes && (
+                                            <span className="text-gray-400 ml-1.5 text-xs">{fmtDuration(s.defaultDurationMinutes)}</span>
+                                        )}
+                                        <RecurrenceBadge rule={s.recurrenceRule} />
+                                    </div>
+                                ) : (
+                                    <div>
+                                        <span className="text-gray-900 font-semibold">{s.totalHours}</span>
+                                        <span className="text-gray-400 ml-1">hrs</span>
+                                        <p className="text-xs text-gray-300 mt-0.5">No time set</p>
+                                    </div>
+                                )}
                             </td>
 
-                            {/* Availability Badge */}
+                            {/* Staff Status */}
                             <td className="px-6 py-4">
-                                {s.available ? (
-                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700">
-                                            <span className="h-1.5 w-1.5 rounded-full bg-green-600"></span>
-                                            Available
+                                {s.assignedEmployee ? (
+                                    <div>
+                                        <p className="text-sm font-medium text-gray-900">
+                                            {s.assignedEmployee.firstName} {s.assignedEmployee.lastName}
+                                        </p>
+                                        <span className="inline-flex items-center gap-1 text-xs text-green-600 font-medium mt-0.5">
+                                            <span className="h-1.5 w-1.5 rounded-full bg-green-500"></span>
+                                            Assigned
                                         </span>
+                                    </div>
                                 ) : (
-                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600">
-                                            <span className="h-1.5 w-1.5 rounded-full bg-gray-400"></span>
-                                            Filled
-                                        </span>
+                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-100 px-2.5 py-0.5 text-xs font-medium text-indigo-700">
+                                        <span className="h-1.5 w-1.5 rounded-full bg-indigo-500"></span>
+                                        Unassigned
+                                    </span>
                                 )}
                             </td>
 
                             {/* Actions Column */}
                             <td className="px-6 py-4 text-right text-sm">
                                 <div className="flex justify-end gap-3">
+                                    {s.assignedEmployee && (
+                                        <button
+                                            onClick={() => onMatchingToggled && onMatchingToggled(s.shiftId, true)}
+                                            className="text-indigo-600 hover:text-indigo-900 font-medium transition-colors"
+                                            title="Unassign and re-open for matching"
+                                        >
+                                            Reassign
+                                        </button>
+                                    )}
+                                    {!s.assignedEmployee && (
+                                        <button
+                                            onClick={() => onAssign && onAssign(s)}
+                                            className="text-green-600 hover:text-green-900 font-medium transition-colors"
+                                        >
+                                            Assign
+                                        </button>
+                                    )}
                                     <button
                                         onClick={() => onEdit(s)}
                                         className="text-indigo-600 hover:text-indigo-900 mr-4 font-medium"

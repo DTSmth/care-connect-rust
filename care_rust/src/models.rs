@@ -1,3 +1,6 @@
+use chrono::{NaiveDate, NaiveTime};
+use chrono::DateTime;
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use validator::Validate;
@@ -83,7 +86,12 @@ pub struct Shift {
     pub service_id: i32,
     pub total_hours: i16,
     pub zipcode: String,
-    pub available: bool,
+    pub open_for_matching: bool,
+    pub default_start_time: Option<NaiveTime>,
+    pub default_duration_minutes: Option<i16>,
+    pub recurrence_rule: Option<String>,
+    pub series_start: Option<NaiveDate>,
+    pub series_end: Option<NaiveDate>,
 }
 
 #[derive(serde::Deserialize)]
@@ -92,7 +100,7 @@ pub struct ShiftFilters {
     pub client_id: Option<i32>,
     pub service_id: Option<i32>,
     pub zipcode: Option<String>,
-    pub available: Option<bool>,
+    pub open_for_matching: Option<bool>,
     pub min_hours: Option<i16>,
     pub max_hours: Option<i16>,
 }
@@ -120,7 +128,22 @@ pub struct ShiftResponse {
     pub service: Service,
     pub total_hours: i16,
     pub zipcode: String,
-    pub available: bool,
+    pub open_for_matching: bool,
+    pub assigned_employee: Option<AssignedEmployee>,
+    pub default_start_time: Option<NaiveTime>,
+    pub default_duration_minutes: Option<i16>,
+    pub recurrence_rule: Option<String>,
+    pub series_start: Option<NaiveDate>,
+    pub series_end: Option<NaiveDate>,
+}
+
+/// Lightweight employee summary nested inside ShiftResponse.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssignedEmployee {
+    pub employee_id: i32,
+    pub first_name: String,
+    pub last_name: String,
 }
 
 /// Request body for POST/PUT /shifts — mirrors the shape the React frontend sends.
@@ -131,7 +154,12 @@ pub struct CreateShiftRequest {
     pub service: ShiftServiceRef,
     pub total_hours: i16,
     pub zipcode: String,
-    pub available: bool,
+    pub open_for_matching: bool,
+    pub default_start_time: Option<NaiveTime>,
+    pub default_duration_minutes: Option<i16>,
+    pub recurrence_rule: Option<String>,
+    pub series_start: Option<NaiveDate>,
+    pub series_end: Option<NaiveDate>,
 }
 
 #[derive(Deserialize)]
@@ -144,6 +172,18 @@ pub struct ShiftClientRef {
 #[serde(rename_all = "camelCase")]
 pub struct ShiftServiceRef {
     pub services_id: i32,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssignShiftRequest {
+    pub employee_id: i32,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetMatchingRequest {
+    pub open_for_matching: bool,
 }
 
 // --- EMPLOYEE MODELS ---
@@ -218,4 +258,61 @@ pub struct LoginRequest {
 pub struct LoginResponseDto {
     pub token: String,
     pub user: crate::models::User,
+}
+
+// --- SHIFT OCCURRENCE MODELS ---
+
+#[derive(Serialize, Deserialize, FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct ShiftOccurrence {
+    pub occurrence_id: i32,
+    pub shift_id: i32,
+    pub employee_id: Option<i32>,
+    pub scheduled_start: DateTime<Utc>,
+    pub scheduled_end: DateTime<Utc>,
+    pub status: String,
+    pub notes: Option<String>,
+}
+
+/// Full occurrence response with nested shift, client, service, and employee details.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OccurrenceResponse {
+    pub occurrence_id: i32,
+    pub shift: ShiftResponse,
+    pub employee: Option<Employee>,
+    pub scheduled_start: DateTime<Utc>,
+    pub scheduled_end: DateTime<Utc>,
+    pub status: String,
+    pub notes: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateOccurrenceRequest {
+    pub scheduled_start: DateTime<Utc>,
+    pub scheduled_end: DateTime<Utc>,
+    pub employee_id: Option<i32>,
+    pub status: Option<String>,
+    pub notes: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateOccurrenceRequest {
+    pub scheduled_start: Option<DateTime<Utc>>,
+    pub scheduled_end: Option<DateTime<Utc>>,
+    pub employee_id: Option<i32>,
+    pub status: Option<String>,
+    pub notes: Option<String>,
+}
+
+/// Query params for GET /calendar
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarFilters {
+    pub start: NaiveDate,
+    pub end: NaiveDate,
+    pub employee_id: Option<i32>,
+    pub client_id: Option<i32>,
 }
