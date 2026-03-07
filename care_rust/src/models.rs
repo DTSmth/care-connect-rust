@@ -211,8 +211,8 @@ pub struct CreateEmployeeRequest {
 #[serde(rename_all = "camelCase")]
 pub struct EmployeePreference {
     pub employee_id: i32,
-    pub can_do_personal_care: bool,
-    pub can_do_lifting: bool,
+    pub can_do_personal_care: Option<bool>,
+    pub can_do_lifting: Option<bool>,
     pub preferred_zipcode: Option<String>,
     pub min_hours: Option<i16>,
     pub max_hours: Option<i16>,
@@ -221,8 +221,8 @@ pub struct EmployeePreference {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpsertPreferenceRequest {
-    pub can_do_personal_care: bool,
-    pub can_do_lifting: bool,
+    pub can_do_personal_care: Option<bool>,
+    pub can_do_lifting: Option<bool>,
     pub preferred_zipcode: Option<String>,
     pub min_hours: Option<i16>,
     pub max_hours: Option<i16>,

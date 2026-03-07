@@ -186,13 +186,25 @@ pub async fn get_matches(
     State(pool): State<PgPool>,
     Path(id): Path<i32>,
 ) -> Result<Json<Vec<MatchResult>>, AppError> {
+    // Use a default "no preferences" struct when the employee hasn't saved any yet.
     let pref = sqlx::query_as::<_, EmployeePreference>(
         "SELECT * FROM employee_preference WHERE employee_id = $1",
     )
     .bind(id)
-    .fetch_one(&pool)
-    .await?;
+    .fetch_optional(&pool)
+    .await?
+    .unwrap_or(EmployeePreference {
+        employee_id: id,
+        can_do_personal_care: None,
+        can_do_lifting: None,
+        preferred_zipcode: None,
+        min_hours: None,
+        max_hours: None,
+    });
 
+    // All open shifts are always returned so the coordinator has full visibility.
+    // Scoring: positive for good fits, negative for known conflicts.
+    // NULL capability = no preference (neutral); true = can do (bonus); false = can't (penalty).
     let rows = sqlx::query_as::<_, ShiftRow>(
         "SELECT
             s.shift_id, s.total_hours, s.zipcode, s.open_for_matching,
@@ -204,12 +216,8 @@ pub async fn get_matches(
          FROM shift s
          JOIN client  c  ON s.client_id  = c.client_id
          JOIN service sv ON s.service_id = sv.services_id
-         WHERE s.open_for_matching = true
-           AND (c.has_personal_care = false OR $1 = true)
-           AND (c.has_lifting       = false OR $2 = true)",
+         WHERE s.open_for_matching = true",
     )
-    .bind(pref.can_do_personal_care)
-    .bind(pref.can_do_lifting)
     .fetch_all(&pool)
     .await?;
 
@@ -231,11 +239,20 @@ pub async fn get_matches(
                 _ => {}
             }
 
-            if r.has_personal_care && pref.can_do_personal_care {
+            // Bonus for confirmed capability matches
+            if r.has_personal_care && pref.can_do_personal_care == Some(true) {
                 score += 1;
             }
-            if r.has_lifting && pref.can_do_lifting {
+            if r.has_lifting && pref.can_do_lifting == Some(true) {
                 score += 1;
+            }
+
+            // Penalty for known conflicts — shift stays visible but ranks lower
+            if r.has_personal_care && pref.can_do_personal_care == Some(false) {
+                score -= 2;
+            }
+            if r.has_lifting && pref.can_do_lifting == Some(false) {
+                score -= 2;
             }
 
             MatchResult {
