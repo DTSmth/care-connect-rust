@@ -5,7 +5,7 @@ use validator::Validate;
 use crate::{
     auth::{
         hash::{hash_password, verify_password},
-        jwt::create_token,
+        jwt::{create_token, Claims},
     },
     errors::AppError,
     models::{LoginRequest, LoginResponseDto, RegisterUserDto, User},
@@ -39,11 +39,16 @@ pub async fn login(
     Ok(Json(LoginResponseDto { token, user }))
 }
 
-/// POST /register — validates input, hashes password, inserts user.
+/// POST /register — admin only; validates input, hashes password, inserts user.
 pub async fn register(
+    claims: Claims,
     State(pool): State<PgPool>,
     Json(payload): Json<RegisterUserDto>,
 ) -> Result<(StatusCode, Json<User>), AppError> {
+    if claims.role != "admin" {
+        return Err(AppError::ForbiddenError("Forbidden: admin only".to_string()));
+    }
+
     payload
         .validate()
         .map_err(|e| AppError::ValidationError(e.to_string()))?;

@@ -6,6 +6,7 @@ use axum::{
 use sqlx::PgPool;
 
 use crate::{
+    auth::jwt::Claims,
     errors::AppError,
     models::{CreateEmployeeRequest, Employee, EmployeePreference, MatchResult, ShiftResponse, UpsertPreferenceRequest},
 };
@@ -71,9 +72,13 @@ pub async fn update_employee(
 }
 
 pub async fn delete_employee(
+    claims: Claims,
     State(pool): State<PgPool>,
     Path(id): Path<i32>,
 ) -> Result<StatusCode, AppError> {
+    if claims.role != "admin" {
+        return Err(AppError::ForbiddenError("Forbidden: admin only".to_string()));
+    }
     sqlx::query("DELETE FROM employee WHERE employee_id = $1")
         .bind(id)
         .execute(&pool)

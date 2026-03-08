@@ -4,6 +4,7 @@ mod errors;
 mod auth;
 
 use axum::{routing::get, Json, Router};
+use axum::middleware;
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use axum::routing::{delete, patch, post, put};
@@ -13,6 +14,7 @@ use tower_http::services::{ServeDir, ServeFile};
 use serde::Serialize;
 use axum::http::{HeaderValue, Method};
 use crate::handlers::{auth_handler, client_handler, employee_handler, occurrence_handler, service_handler, shift_handler, user_handler};
+use crate::auth::middleware::{require_auth, security_headers};
 
 #[derive(Serialize)]
 struct Status {
@@ -71,9 +73,13 @@ async fn main() {
         .unwrap_or_else(|_| "./frontend".to_string());
     let index_html = format!("{}/index.html", frontend_dir);
 
-    let api_routes = Router::new()
+    // ── Public routes (no auth required) ─────────────────────────────────────
+    let public_routes = Router::new()
         .route("/health", get(health_check))
-        .route("/login", post(auth_handler::login))
+        .route("/login", post(auth_handler::login));
+
+    // ── Protected routes (require valid JWT) ─────────────────────────────────
+    let protected_routes = Router::new()
         .route("/register", post(auth_handler::register))
         .route("/users", get(user_handler::get_all_users))
         .route("/users/:id", get(user_handler::get_user_by_id))
@@ -106,6 +112,12 @@ async fn main() {
         .route("/occurrences/:id", get(occurrence_handler::get_occurrence_by_id))
         .route("/occurrences/:id", put(occurrence_handler::update_occurrence))
         .route("/occurrences/:id", delete(occurrence_handler::delete_occurrence))
+        .layer(middleware::from_fn(require_auth));
+
+    let api_routes = Router::new()
+        .merge(public_routes)
+        .merge(protected_routes)
+        .layer(middleware::from_fn(security_headers))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .with_state(pool);
@@ -121,10 +133,15 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
-
-async fn health_check() -> Json<Status> {
+async fn health_check(
+    axum::extract::State(pool): axum::extract::State<sqlx::PgPool>,
+) -> Json<Status> {
+    let db_connected = sqlx::query("SELECT 1")
+        .fetch_one(&pool)
+        .await
+        .is_ok();
     Json(Status {
         status: "Up".to_string(),
-        db_connected: true,
+        db_connected,
     })
 }

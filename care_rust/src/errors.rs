@@ -8,6 +8,7 @@ use serde_json::json;
 #[derive(Debug)]
 pub enum AppError {
     AuthError(String),
+    ForbiddenError(String),
     DbError(sqlx::Error),
     NotFound,
     ValidationError(String),
@@ -18,6 +19,7 @@ impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, message) = match self {
             AppError::AuthError(msg) => (StatusCode::UNAUTHORIZED, msg),
+            AppError::ForbiddenError(msg) => (StatusCode::FORBIDDEN, msg),
             AppError::DbError(e) => match e {
                 sqlx::Error::RowNotFound => {
                     (StatusCode::NOT_FOUND, "Resource not found".to_string())

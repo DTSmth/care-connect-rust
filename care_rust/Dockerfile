@@ -26,13 +26,20 @@ RUN cargo build --release
 # ─────────────────────────────────────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*
+
+# Create a non-root user to run the application
+RUN groupadd -r carerust && useradd -r -g carerust -s /bin/false carerust
+
 WORKDIR /app
 
 COPY --from=builder /app/target/release/care_rust ./care_rust
 COPY --from=builder /app/migrations ./migrations
 COPY --from=frontend-builder /app/front/dist ./frontend
 
+RUN chown -R carerust:carerust /app
+
 ENV FRONTEND_DIR=/app/frontend
 EXPOSE 8080
 
+USER carerust
 CMD ["./care_rust"]

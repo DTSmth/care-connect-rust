@@ -5,6 +5,7 @@ use axum::{
 };
 use sqlx::PgPool;
 use serde::Deserialize;
+use crate::auth::jwt::Claims;
 use crate::errors::AppError;
 use crate::models::{Client, ClientFilters, UpdateClientRequest};
 
@@ -90,11 +91,15 @@ pub async fn update_client(
     Ok(Json(updated_client))
 }
 
-// 4. DELETE
+// 4. DELETE — admin only
 pub async fn delete_client(
+    claims: Claims,
     State(pool): State<PgPool>,
     Path(id): Path<i32>,
 ) -> Result<StatusCode, AppError> {
+    if claims.role != "admin" {
+        return Err(AppError::ForbiddenError("Forbidden: admin only".to_string()));
+    }
     sqlx::query("DELETE FROM client WHERE client_id = $1")
         .bind(id)
         .execute(&pool)

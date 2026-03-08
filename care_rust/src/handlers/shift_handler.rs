@@ -1,6 +1,7 @@
 use axum::{extract::{State, Path, Query}, http::StatusCode, Json};
 use chrono::{NaiveDate, NaiveTime};
 use sqlx::PgPool;
+use crate::auth::jwt::Claims;
 use crate::errors::AppError;
 use crate::models::{AssignedEmployee, AssignShiftRequest, Client, CreateShiftRequest, Service, SetMatchingRequest, ShiftFilters, ShiftResponse};
 
@@ -257,11 +258,15 @@ pub async fn update_shift(
     Ok(Json(to_response(row)))
 }
 
-// DELETE /shifts/:id
+// DELETE /shifts/:id — admin only
 pub async fn delete_shift(
+    claims: Claims,
     State(pool): State<PgPool>,
     Path(id): Path<i32>,
 ) -> Result<StatusCode, AppError> {
+    if claims.role != "admin" {
+        return Err(AppError::ForbiddenError("Forbidden: admin only".to_string()));
+    }
     sqlx::query("DELETE FROM shift WHERE shift_id = $1")
         .bind(id)
         .execute(&pool).await?;

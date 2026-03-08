@@ -23,7 +23,7 @@ pub struct User {
 #[serde(rename_all = "camelCase")]
 pub struct CreateUserRequest {
     pub username: String,
-    pub password_hash: String,
+    pub password: String,
     pub role: String,
     pub display_name: Option<String>,
 }
