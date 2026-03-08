@@ -13,3 +13,4 @@ care_rust/target/
 
 # Frontend build output (handled by front/.gitignore too)
 front/dist/
+PRIVATE_REFERENCE.md
