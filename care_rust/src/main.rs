@@ -15,6 +15,7 @@ use serde::Serialize;
 use axum::http::{HeaderValue, Method};
 use crate::handlers::{auth_handler, client_handler, employee_handler, occurrence_handler, service_handler, shift_handler, user_handler};
 use crate::auth::middleware::{require_auth, security_headers};
+use crate::auth::rate_limit::LoginRateLimiter;
 
 #[derive(Serialize)]
 struct Status {
@@ -74,9 +75,14 @@ async fn main() {
     let index_html = format!("{}/index.html", frontend_dir);
 
     // ── Public routes (no auth required) ─────────────────────────────────────
+    // NOTE: CSRF is not a concern here — all state-changing requests require
+    // `Authorization: Bearer <token>`, which browsers cannot send cross-origin
+    // without a preflight. This makes CSRF structurally impossible for this API.
+    let login_limiter = LoginRateLimiter::new();
     let public_routes = Router::new()
         .route("/health", get(health_check))
-        .route("/login", post(auth_handler::login));
+        .route("/login", post(auth_handler::login))
+        .layer(axum::Extension(login_limiter));
 
     // ── Protected routes (require valid JWT) ─────────────────────────────────
     let protected_routes = Router::new()

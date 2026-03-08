@@ -1,4 +1,4 @@
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{extract::{State, Extension}, http::{StatusCode, HeaderMap}, Json};
 use sqlx::PgPool;
 use validator::Validate;
 
@@ -6,28 +6,58 @@ use crate::{
     auth::{
         hash::{hash_password, verify_password},
         jwt::{create_token, Claims},
+        rate_limit::LoginRateLimiter,
     },
     errors::AppError,
     models::{LoginRequest, LoginResponseDto, RegisterUserDto, User},
 };
 
 /// POST /login — verifies credentials and returns a signed JWT.
+/// Rate-limited: 10 failed attempts per IP per 15 minutes.
 pub async fn login(
     State(pool): State<PgPool>,
+    Extension(limiter): Extension<LoginRateLimiter>,
+    headers: HeaderMap,
     Json(payload): Json<LoginRequest>,
 ) -> Result<Json<LoginResponseDto>, AppError> {
-    let user = sqlx::query_as::<_, User>("SELECT * FROM app_user WHERE username = $1")
+    // Extract client IP from X-Forwarded-For (Cloud Run sets this) or fall back
+    let ip = headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    if limiter.is_blocked(&ip) {
+        tracing::warn!(ip, "Login blocked — rate limit exceeded");
+        return Err(AppError::AuthError(
+            "Too many login attempts. Please try again later.".to_string(),
+        ));
+    }
+
+    let user_result = sqlx::query_as::<_, User>("SELECT * FROM app_user WHERE username = $1")
         .bind(&payload.username)
         .fetch_one(&pool)
         .await
-        .map_err(|_| AppError::AuthError("Invalid credentials".to_string()))?;
+        .map_err(|_| AppError::AuthError("Invalid credentials".to_string()));
+
+    let user = match user_result {
+        Ok(u) => u,
+        Err(e) => {
+            limiter.record_failure(&ip);
+            return Err(e);
+        }
+    };
 
     let valid = verify_password(&payload.password, &user.password_hash)
         .map_err(|_| AppError::AuthError("Invalid credentials".to_string()))?;
 
     if !valid {
+        limiter.record_failure(&ip);
         return Err(AppError::AuthError("Invalid credentials".to_string()));
     }
+
+    limiter.record_success(&ip);
 
     let secret = std::env::var("JWT_SECRET")
         .map_err(|_| AppError::InternalError("JWT_SECRET not set".to_string()))?;
@@ -35,7 +65,7 @@ pub async fn login(
     let token = create_token(&user.username, &user.role, &secret)
         .map_err(|_| AppError::InternalError("Failed to create token".to_string()))?;
 
-    tracing::info!("User '{}' logged in", user.username);
+    tracing::info!(username = %user.username, "User logged in");
     Ok(Json(LoginResponseDto { token, user }))
 }
 
