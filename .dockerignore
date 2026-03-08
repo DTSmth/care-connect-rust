@@ -1,0 +1,19 @@
+# Rust build artifacts
+care_rust/target/
+
+# Node modules (reinstalled in Docker)
+front/node_modules/
+node_modules/
+
+# Local environment files with secrets
+front/.env
+front/.env.local
+care_rust/.env
+
+# Git
+.git/
+.gitignore
+
+# Logs and misc
+*.log
+scripts/
