@@ -21,9 +21,9 @@ import { getAllEmployees } from './api/employeeApi';
 // 1. Define Layout First
 function AppLayout() {
     return (
-        <div className="min-h-screen bg-gray-50">
+        <div className="flex h-screen bg-[#F2F2F2]">
             <Navbar />
-            <main>
+            <main className="flex-1 ml-64 overflow-y-auto">
                 <Outlet />
             </main>
         </div>

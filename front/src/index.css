@@ -1,1 +1,11 @@
 @import "tailwindcss";
+
+/* Custom CSS variables for brand colors */
+:root {
+  --color-primary: #0487D9;
+  --color-primary-hover: #0363A0;
+  --color-secondary: #0CB1F2;
+  --color-accent: #0FC9F2;
+  --color-light: #99E2F2;
+  --color-bg: #F2F2F2;
+}

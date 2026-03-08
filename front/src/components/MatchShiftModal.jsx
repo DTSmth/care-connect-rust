@@ -37,12 +37,10 @@ function parseShiftDays(rule) {
 /**
  * Returns an array of match criteria chips for a shift result card.
  * Each chip has { label, match: 'good' | 'conflict' | 'neutral' }.
- * Only chips where the user has actually set a preference are returned.
  */
 function buildCriteria(shift, client, prefs, distanceMiles) {
     const chips = [];
 
-    // Distance chip — replaces exact zipcode matching
     if (distanceMiles != null) {
         const dist = Math.round(distanceMiles);
         const max = prefs.maxDistanceMiles ? parseInt(prefs.maxDistanceMiles) : null;
@@ -52,11 +50,9 @@ function buildCriteria(shift, client, prefs, distanceMiles) {
             match: isOver ? 'conflict' : distanceMiles < 5 ? 'good' : distanceMiles < 15 ? 'neutral' : 'neutral',
         });
     } else if (prefs.homeZipcode) {
-        // Shift hasn't been geocoded yet — show zipcode as a soft hint
         chips.push({ label: `📍 ${shift.zipcode || '—'} (no distance data)`, match: 'neutral' });
     }
 
-    // Hours — compare weekly total so min/max range is meaningful
     const min = prefs.minHours !== '' ? parseInt(prefs.minHours) : null;
     const max = prefs.maxHours !== '' ? parseInt(prefs.maxHours) : null;
     if (min !== null || max !== null) {
@@ -69,13 +65,11 @@ function buildCriteria(shift, client, prefs, distanceMiles) {
         });
     }
 
-    // Personal care — only show chip if the shift requires it
     if (client.hasPersonalCare) {
         if (prefs.canDoPersonalCare === true)  chips.push({ label: 'Personal care ✓', match: 'good' });
         if (prefs.canDoPersonalCare === false) chips.push({ label: 'Personal care needed', match: 'conflict' });
     }
 
-    // Lifting — only show chip if the shift requires it
     if (client.hasLifting) {
         if (prefs.canDoLifting === true)  chips.push({ label: 'Lifting ✓', match: 'good' });
         if (prefs.canDoLifting === false) chips.push({ label: 'Lifting needed', match: 'conflict' });
@@ -85,23 +79,23 @@ function buildCriteria(shift, client, prefs, distanceMiles) {
 }
 
 const CHIP_CLASS = {
-    good:     'bg-green-100 text-green-800',
-    conflict: 'bg-amber-100 text-amber-700',
-    neutral:  'bg-gray-100  text-gray-500',
+    good:     'bg-[#d1fae5] text-[#065f46]',
+    conflict: 'bg-[#fef3c7] text-[#92400e]',
+    neutral:  'bg-[#F2F2F2]  text-[#64748b]',
 };
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function CapabilityToggle({ label, hint, value, onChange }) {
     const options = [
-        { val: null,  text: 'Not set',  cls: value === null  ? 'bg-gray-200 text-gray-700 ring-2 ring-gray-400'   : 'bg-white text-gray-400 border border-gray-200' },
-        { val: true,  text: 'Can do',   cls: value === true  ? 'bg-green-100 text-green-800 ring-2 ring-green-400' : 'bg-white text-gray-400 border border-gray-200' },
-        { val: false, text: "Can't do", cls: value === false ? 'bg-red-100 text-red-700 ring-2 ring-red-400'       : 'bg-white text-gray-400 border border-gray-200' },
+        { val: null,  text: 'Not set',  cls: value === null  ? 'bg-[#e2e8f0] text-slate-700 ring-2 ring-slate-400'   : 'bg-white text-[#64748b] border border-[#e2e8f0]' },
+        { val: true,  text: 'Can do',   cls: value === true  ? 'bg-[#d1fae5] text-[#065f46] ring-2 ring-[#10b981]' : 'bg-white text-[#64748b] border border-[#e2e8f0]' },
+        { val: false, text: "Can't do", cls: value === false ? 'bg-[#fee2e2] text-[#991b1b] ring-2 ring-[#ef4444]'  : 'bg-white text-[#64748b] border border-[#e2e8f0]' },
     ];
     return (
         <div>
-            <p className="text-xs font-semibold text-gray-600 mb-0.5">{label}</p>
-            {hint && <p className="text-xs text-gray-400 mb-1">{hint}</p>}
+            <p className="text-xs font-semibold text-slate-600 mb-0.5">{label}</p>
+            {hint && <p className="text-xs text-[#64748b] mb-1">{hint}</p>}
             <div className="flex gap-1">
                 {options.map(opt => (
                     <button key={String(opt.val)} type="button" onClick={() => onChange(opt.val)}
@@ -121,16 +115,16 @@ function DayPicker({ value = [], onChange }) {
     };
     return (
         <div>
-            <p className="text-xs font-semibold text-gray-600 mb-1">
-                Available Days <span className="font-normal text-gray-400">(leave blank for any day)</span>
+            <p className="text-xs font-semibold text-slate-600 mb-1">
+                Available Days <span className="font-normal text-[#64748b]">(leave blank for any day)</span>
             </p>
             <div className="flex gap-1.5">
                 {DAYS.map(d => (
                     <button key={d.key} type="button" title={d.full} onClick={() => toggle(d.key)}
                         className={`w-8 h-8 rounded-full text-xs font-semibold transition-all
                             ${value.includes(d.key)
-                                ? 'bg-violet-600 text-white ring-2 ring-violet-300'
-                                : 'bg-white text-gray-400 border border-gray-200 hover:border-violet-300'}`}>
+                                ? 'bg-[#0487D9] text-white ring-2 ring-[#99E2F2]'
+                                : 'bg-white text-[#64748b] border border-[#e2e8f0] hover:border-[#0487D9]'}`}>
                         {d.label}
                     </button>
                 ))}
@@ -160,60 +154,55 @@ function MatchCard({ m, prefs, onAssign, assigning, anonymous }) {
     const hasConflict = chips.some(c => c.match === 'conflict');
     const hasGood     = chips.some(c => c.match === 'good');
 
-    // Accent bar: green = at least one match, amber = any conflict, gray = neutral
     const accentBar = hasConflict
-        ? 'border-l-amber-400'
-        : hasGood ? 'border-l-green-400'
-        : 'border-l-gray-200';
+        ? 'border-l-[#f59e0b]'
+        : hasGood ? 'border-l-[#10b981]'
+        : 'border-l-[#e2e8f0]';
 
     return (
-        <div className={`rounded-lg border border-gray-200 border-l-4 ${accentBar} bg-white p-3`}>
+        <div className={`rounded-lg border border-[#e2e8f0] border-l-4 ${accentBar} bg-white p-3`}>
             <div className="flex items-start gap-3">
                 <div className="flex-1 min-w-0">
                     {/* Title row */}
                     <div className="flex items-baseline gap-2 flex-wrap">
-                        <span className="text-sm font-semibold text-gray-900">
+                        <span className="text-sm font-semibold text-slate-800">
                             {m.shift.client.firstName} {m.shift.client.lastName}
                         </span>
-                        <span className="text-xs text-gray-400">{m.shift.service.serviceName}</span>
+                        <span className="text-xs text-[#64748b]">{m.shift.service.serviceName}</span>
                         {m.shift.defaultStartTime && (
-                            <span className="text-xs font-medium text-indigo-600 ml-auto">
+                            <span className="text-xs font-medium text-[#0487D9] ml-auto">
                                 Starts {m.shift.defaultStartTime.slice(0, 5)}
                             </span>
                         )}
                     </div>
 
                     {/* Meta row */}
-                    <p className="text-xs text-gray-400 mt-0.5">
+                    <p className="text-xs text-[#64748b] mt-0.5">
                         {weeklyHours(m.shift.totalHours, m.shift.recurrenceRule)}h/week
                         {m.shift.zipcode && <> · {m.shift.zipcode}</>}
-                        {isDaily && <> · <span className="text-violet-600 font-medium">Daily</span></>}
+                        {isDaily && <> · <span className="text-[#0487D9] font-medium">Daily</span></>}
                     </p>
 
                     {/* Day pills — only show for weekly schedules */}
                     {!isDaily && shiftDays.length > 0 && (
                         <div className="flex gap-1 mt-2">
                             {DAYS.filter(d => shiftDays.includes(d.key)).map(d => {
-                                // Three states:
-                                // no day pref set → neutral violet (all shift days look the same)
-                                // pref set + this day matches → bright violet = confirmed overlap
-                                // pref set + this day doesn't match → gray = not available
                                 const noPrefs = availDays.length === 0;
                                 const isMatch = !noPrefs && availDays.includes(d.key);
                                 return (
                                     <span key={d.key} title={d.full}
                                         className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold
                                             ${noPrefs
-                                                ? 'bg-violet-100 text-violet-600'
+                                                ? 'bg-[#99E2F2]/50 text-[#0487D9]'
                                                 : isMatch
-                                                    ? 'bg-violet-600 text-white ring-2 ring-violet-300 ring-offset-1'
-                                                    : 'bg-gray-100 text-gray-300'}`}>
+                                                    ? 'bg-[#0487D9] text-white ring-2 ring-[#99E2F2] ring-offset-1'
+                                                    : 'bg-[#F2F2F2] text-slate-300'}`}>
                                         {d.label}
                                     </span>
                                 );
                             })}
                             {availDays.length > 0 && (
-                                <span className="self-center ml-1 text-xs text-gray-400">
+                                <span className="self-center ml-1 text-xs text-[#64748b]">
                                     {shiftDays.filter(d => availDays.includes(d)).length} of {shiftDays.length} days match
                                 </span>
                             )}
@@ -227,12 +216,12 @@ function MatchCard({ m, prefs, onAssign, assigning, anonymous }) {
                                 const day = DAYS.find(d => d.key === key);
                                 return day ? (
                                     <span key={key}
-                                        className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold bg-violet-600 text-white ring-2 ring-violet-300 ring-offset-1">
+                                        className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold bg-[#0487D9] text-white ring-2 ring-[#99E2F2] ring-offset-1">
                                         {day.label}
                                     </span>
                                 ) : null;
                             })}
-                            <span className="self-center ml-1 text-xs text-gray-400">all available days covered</span>
+                            <span className="self-center ml-1 text-xs text-[#64748b]">all available days covered</span>
                         </div>
                     )}
 
@@ -248,15 +237,15 @@ function MatchCard({ m, prefs, onAssign, assigning, anonymous }) {
                     )}
                 </div>
 
-                {/* Assign button — disabled for anonymous/new-candidate mode */}
+                {/* Assign button */}
                 {anonymous ? (
-                    <span className="shrink-0 rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-400 mt-0.5 whitespace-nowrap"
+                    <span className="shrink-0 rounded-lg bg-[#F2F2F2] px-3 py-1.5 text-xs font-medium text-[#64748b] mt-0.5 whitespace-nowrap"
                         title="Add this person as an employee to assign">
                         Add employee first
                     </span>
                 ) : (
                     <button onClick={() => onAssign(m)} disabled={assigning === m.shift.shiftId}
-                        className="shrink-0 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-500 disabled:opacity-50 mt-0.5">
+                        className="shrink-0 rounded-lg bg-[#0487D9] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#0363A0] disabled:opacity-50 mt-0.5 transition-colors">
                         {assigning === m.shift.shiftId ? '…' : 'Assign'}
                     </button>
                 )}
@@ -317,10 +306,8 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
 
             let res;
             if (isAnonymous) {
-                // No employee record — post criteria directly, no preference save
                 res = await anonymousMatch(criteria);
             } else {
-                // Save preferences for this employee, then fetch matches
                 await upsertPreferences(selectedEmployeeId, criteria);
                 res = await getMatches(selectedEmployeeId);
             }
@@ -358,7 +345,6 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
         onClose();
     };
 
-    // Soft split: positive-score shifts first, then the rest — no hard exclusions
     const positiveMatches = matches.filter(m => m.score > 0);
     const otherMatches    = matches.filter(m => m.score <= 0);
     const prefsAreSet = prefs.canDoPersonalCare !== null || prefs.canDoLifting !== null ||
@@ -375,8 +361,8 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
                 {/* Header */}
                 <div className="flex items-center justify-between mb-5">
                     <div>
-                        <h2 className="text-xl font-bold text-gray-900">Find Best Match</h2>
-                        <p className="text-sm text-gray-500 mt-0.5">
+                        <h2 className="text-xl font-bold text-slate-800">Find Best Match</h2>
+                        <p className="text-sm text-[#64748b] mt-0.5">
                             {step === 1
                                 ? isAnonymous
                                     ? 'Matching a new candidate — schedules ranked by criteria'
@@ -384,11 +370,11 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
                                 : `${matches.length} open schedule${matches.length !== 1 ? 's' : ''} · sorted by best match`}
                         </p>
                     </div>
-                    <span className="text-xs font-medium text-gray-400">Step {step} of 2</span>
+                    <span className="text-xs font-medium text-[#64748b] bg-[#F2F2F2] px-2.5 py-1 rounded-full">Step {step} of 2</span>
                 </div>
 
                 {error && (
-                    <div className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+                    <div className="mb-4 rounded-lg bg-[#fee2e2] px-4 py-3 text-sm text-red-700">{error}</div>
                 )}
 
                 {/* ── STEP 1: Preferences ── */}
@@ -396,29 +382,29 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
                     <form onSubmit={handleFindMatches} className="space-y-4">
 
                         {/* Mode toggle */}
-                        <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm font-medium">
+                        <div className="flex rounded-lg border border-[#e2e8f0] overflow-hidden text-sm font-medium">
                             <button type="button"
                                 onClick={() => { setIsAnonymous(false); setSelectedEmployeeId(''); setPrefs(EMPTY_PREFS); }}
                                 className={`flex-1 py-2 transition-colors ${!isAnonymous
-                                    ? 'bg-violet-600 text-white'
-                                    : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                                    ? 'bg-[#0487D9] text-white'
+                                    : 'bg-white text-[#64748b] hover:bg-[#F2F2F2]'}`}>
                                 Existing Employee
                             </button>
                             <button type="button"
                                 onClick={() => { setIsAnonymous(true); setSelectedEmployeeId(''); setPrefs(EMPTY_PREFS); }}
                                 className={`flex-1 py-2 transition-colors ${isAnonymous
-                                    ? 'bg-violet-600 text-white'
-                                    : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                                    ? 'bg-[#0487D9] text-white'
+                                    : 'bg-white text-[#64748b] hover:bg-[#F2F2F2]'}`}>
                                 New Candidate
                             </button>
                         </div>
 
-                        {/* Employee selector — only shown in Existing Employee mode */}
+                        {/* Employee selector */}
                         {!isAnonymous && (
                             <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-1">Employee</label>
+                                <label className="block text-sm font-semibold text-slate-700 mb-1">Employee</label>
                                 <select required
-                                    className="w-full rounded-lg border border-gray-300 p-2.5 focus:ring-2 focus:ring-violet-500"
+                                    className="w-full rounded-lg border border-[#cbd5e1] p-2.5 focus:outline-none focus:ring-2 focus:ring-[#0487D9] focus:border-transparent text-sm"
                                     value={selectedEmployeeId}
                                     onChange={e => setSelectedEmployeeId(e.target.value)}>
                                     <option value="">-- Select Employee --</option>
@@ -433,15 +419,15 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
 
                         {/* New candidate info banner */}
                         {isAnonymous && (
-                            <div className="rounded-lg bg-violet-50 border border-violet-200 px-4 py-3 text-sm text-violet-700">
+                            <div className="rounded-lg bg-[#99E2F2]/30 border border-[#0CB1F2]/30 px-4 py-3 text-sm text-[#0487D9]">
                                 <span className="font-semibold">On the phone?</span> Enter what you know about the candidate below and we'll rank all open shifts. You can assign once they're added as an employee.
                             </div>
                         )}
 
-                        <div className="rounded-lg border border-gray-100 bg-gray-50 p-4 space-y-4">
-                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                        <div className="rounded-lg border border-[#e2e8f0] bg-[#F2F2F2] p-4 space-y-4">
+                            <p className="text-xs font-semibold text-[#64748b] uppercase tracking-wide">
                                 Employee Capabilities
-                                <span className="ml-1 font-normal normal-case text-gray-400">— leave anything blank to see all shifts</span>
+                                <span className="ml-1 font-normal normal-case text-slate-400">— leave anything blank to see all shifts</span>
                             </p>
 
                             <div className="flex gap-6 flex-wrap">
@@ -458,19 +444,19 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-sm font-semibold text-gray-700 mb-1">Home Zipcode</label>
+                                    <label className="block text-sm font-semibold text-slate-700 mb-1">Home Zipcode</label>
                                     <input type="text"
-                                        className="w-full rounded-lg border border-gray-300 p-2.5"
+                                        className="w-full rounded-lg border border-[#cbd5e1] p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0487D9] focus:border-transparent"
                                         placeholder="e.g. 30301"
                                         value={prefs.homeZipcode}
                                         onChange={e => setPrefs({ ...prefs, homeZipcode: e.target.value })}
                                     />
-                                    <p className="text-xs text-gray-400 mt-0.5">Used to calculate travel distance</p>
+                                    <p className="text-xs text-[#64748b] mt-0.5">Used to calculate travel distance</p>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-semibold text-gray-700 mb-1">Max Distance</label>
+                                    <label className="block text-sm font-semibold text-slate-700 mb-1">Max Distance</label>
                                     <select
-                                        className="w-full rounded-lg border border-gray-300 p-2.5"
+                                        className="w-full rounded-lg border border-[#cbd5e1] p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0487D9] focus:border-transparent"
                                         value={prefs.maxDistanceMiles}
                                         onChange={e => setPrefs({ ...prefs, maxDistanceMiles: e.target.value })}>
                                         <option value="">Any distance</option>
@@ -485,16 +471,16 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-sm font-semibold text-gray-700 mb-1">Min Hours / week</label>
+                                    <label className="block text-sm font-semibold text-slate-700 mb-1">Min Hours / week</label>
                                     <input type="number" min="1"
-                                        className="w-full rounded-lg border border-gray-300 p-2.5"
+                                        className="w-full rounded-lg border border-[#cbd5e1] p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0487D9] focus:border-transparent"
                                         placeholder="e.g. 10" value={prefs.minHours}
                                         onChange={e => setPrefs({ ...prefs, minHours: e.target.value })} />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-semibold text-gray-700 mb-1">Max Hours / week</label>
+                                    <label className="block text-sm font-semibold text-slate-700 mb-1">Max Hours / week</label>
                                     <input type="number" min="1"
-                                        className="w-full rounded-lg border border-gray-300 p-2.5"
+                                        className="w-full rounded-lg border border-[#cbd5e1] p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0487D9] focus:border-transparent"
                                         placeholder="e.g. 40" value={prefs.maxHours}
                                         onChange={e => setPrefs({ ...prefs, maxHours: e.target.value })} />
                                 </div>
@@ -503,11 +489,11 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
 
                         <div className="flex justify-end gap-3 pt-1">
                             <button type="button" onClick={handleClose}
-                                className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">
+                                className="px-4 py-2 text-sm font-medium text-[#64748b] hover:bg-[#F2F2F2] rounded-lg transition-colors">
                                 Cancel
                             </button>
                             <button type="submit" disabled={loading || (!isAnonymous && !selectedEmployeeId)}
-                                className="rounded-lg bg-violet-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-violet-500 disabled:opacity-50">
+                                className="rounded-lg bg-[#0487D9] px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#0363A0] disabled:opacity-50 transition-colors">
                                 {loading ? 'Finding…' : 'Find Matches →'}
                             </button>
                         </div>
@@ -519,8 +505,8 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
                     <div className="space-y-3">
                         {matches.length === 0 ? (
                             <div className="py-10 text-center space-y-2">
-                                <p className="text-gray-700 font-medium">No open schedules available right now.</p>
-                                <p className="text-sm text-gray-400">Mark shift schedules as open for matching to see them here.</p>
+                                <p className="text-slate-700 font-medium">No open schedules available right now.</p>
+                                <p className="text-sm text-[#64748b]">Mark shift schedules as open for matching to see them here.</p>
                             </div>
                         ) : (
                             <div className="max-h-[28rem] overflow-y-auto space-y-4 pr-1">
@@ -528,7 +514,7 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
                                 {/* Strong matches */}
                                 {positiveMatches.length > 0 && (
                                     <section className="space-y-2">
-                                        <p className="text-xs font-semibold text-green-700 uppercase tracking-wide">
+                                        <p className="text-xs font-semibold text-[#10b981] uppercase tracking-wide">
                                             Best Matches ({positiveMatches.length})
                                         </p>
                                         {positiveMatches.map(m => (
@@ -538,25 +524,25 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
                                     </section>
                                 )}
 
-                                {/* Other shifts — always shown, never hidden */}
+                                {/* Other shifts */}
                                 {otherMatches.length > 0 && (
                                     <section className="space-y-2">
                                         {positiveMatches.length > 0 && (
                                             <div className="flex items-center gap-2 pt-1">
-                                                <div className="flex-1 h-px bg-gray-200" />
-                                                <p className="text-xs font-medium text-gray-400 whitespace-nowrap">
+                                                <div className="flex-1 h-px bg-[#e2e8f0]" />
+                                                <p className="text-xs font-medium text-[#64748b] whitespace-nowrap">
                                                     Other open schedules ({otherMatches.length})
                                                 </p>
-                                                <div className="flex-1 h-px bg-gray-200" />
+                                                <div className="flex-1 h-px bg-[#e2e8f0]" />
                                             </div>
                                         )}
                                         {positiveMatches.length === 0 && !prefsAreSet && (
-                                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                                            <p className="text-xs font-semibold text-[#64748b] uppercase tracking-wide">
                                                 All Open Schedules ({otherMatches.length})
                                             </p>
                                         )}
                                         {positiveMatches.length === 0 && prefsAreSet && (
-                                            <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 text-xs text-blue-700 mb-1">
+                                            <div className="rounded-lg bg-[#99E2F2]/30 border border-[#0CB1F2]/30 px-3 py-2 text-xs text-[#0487D9] mb-1">
                                                 No schedules fully match — all options shown below. Some may need a conversation first.
                                             </div>
                                         )}
@@ -569,13 +555,13 @@ export default function MatchShiftModal({ isOpen, onClose, employees = [], onAss
                             </div>
                         )}
 
-                        <div className="flex justify-between pt-2 border-t border-gray-100">
+                        <div className="flex justify-between pt-2 border-t border-[#e2e8f0]">
                             <button onClick={() => setStep(1)}
-                                className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">
+                                className="px-4 py-2 text-sm font-medium text-[#64748b] hover:bg-[#F2F2F2] rounded-lg transition-colors">
                                 ← Back
                             </button>
                             <button onClick={handleClose}
-                                className="px-4 py-2 text-sm font-medium text-gray-500 hover:bg-gray-100 rounded-lg">
+                                className="px-4 py-2 text-sm font-medium text-[#64748b] hover:bg-[#F2F2F2] rounded-lg transition-colors">
                                 Done
                             </button>
                         </div>

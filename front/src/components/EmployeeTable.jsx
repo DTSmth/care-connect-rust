@@ -2,8 +2,8 @@ import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 function SortIcon({ active, dir }) {
-    if (!active) return <span className="ml-1 text-gray-300 select-none">⇅</span>;
-    return <span className="ml-1 text-indigo-600 select-none">{dir === 'asc' ? '↑' : '↓'}</span>;
+    if (!active) return <span className="ml-1 text-slate-300 select-none">⇅</span>;
+    return <span className="ml-1 text-[#0487D9] select-none">{dir === 'asc' ? '↑' : '↓'}</span>;
 }
 
 function useSortable(defaultKey, defaultDir = 'asc') {
@@ -42,59 +42,59 @@ export default function EmployeeTable({ employees, onEdit, onDelete }) {
     }, [employees, sort]);
 
     return (
-        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-            <table className="w-full border-collapse text-left text-sm text-gray-500">
-                <thead className="bg-gray-50 text-xs font-semibold uppercase tracking-wider text-gray-700">
+        <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-left text-sm">
+                <thead className="bg-[#F2F2F2] border-b border-[#e2e8f0]">
                     <tr>
-                        <th className="px-6 py-4 cursor-pointer select-none hover:text-indigo-600"
+                        <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 cursor-pointer select-none hover:text-[#0487D9] transition-colors"
                             onClick={() => toggleSort('name')}>
                             Name
                             <SortIcon active={sort.key === 'name'} dir={sort.dir} />
                         </th>
-                        <th className="px-6 py-4">Phone</th>
-                        <th className="px-6 py-4 cursor-pointer select-none hover:text-indigo-600"
+                        <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500">Phone</th>
+                        <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 cursor-pointer select-none hover:text-[#0487D9] transition-colors"
                             onClick={() => toggleSort('email')}>
                             Email
                             <SortIcon active={sort.key === 'email'} dir={sort.dir} />
                         </th>
-                        <th className="px-6 py-4 text-right">Actions</th>
+                        <th className="px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-500 text-right">Actions</th>
                     </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200">
+                <tbody className="divide-y divide-[#e2e8f0]">
                     {sorted.length === 0 ? (
                         <tr>
-                            <td colSpan="4" className="px-6 py-10 text-center text-gray-400">
+                            <td colSpan="4" className="px-6 py-12 text-center text-[#64748b]">
                                 No employees found.
                             </td>
                         </tr>
                     ) : (
-                        sorted.map(emp => (
-                            <tr key={emp.employeeId} className="hover:bg-gray-50 transition-colors">
-                                <td className="px-6 py-4 font-medium text-gray-900">
+                        sorted.map((emp, i) => (
+                            <tr key={emp.employeeId} className={`hover:bg-[#f0faff] transition-colors ${i % 2 === 1 ? 'bg-[#fafafa]' : 'bg-white'}`}>
+                                <td className="px-6 py-4 font-semibold text-slate-800">
                                     <button
                                         onClick={() => navigate(`/shifts?employeeId=${emp.employeeId}`)}
-                                        className="hover:text-indigo-600 hover:underline transition-colors text-left"
+                                        className="text-[#0487D9] hover:text-[#0363A0] hover:underline transition-colors text-left"
                                     >
                                         {emp.firstName} {emp.lastName}
                                     </button>
                                 </td>
-                                <td className="px-6 py-4 tabular-nums text-gray-600">
+                                <td className="px-6 py-4 tabular-nums text-slate-600">
                                     {emp.phoneNumber}
                                 </td>
-                                <td className="px-6 py-4 text-gray-600">
-                                    {emp.email || <span className="italic text-gray-400">—</span>}
+                                <td className="px-6 py-4 text-slate-600">
+                                    {emp.email || <span className="italic text-[#64748b]">—</span>}
                                 </td>
                                 <td className="px-6 py-4 text-right">
                                     <div className="flex justify-end gap-3">
                                         <button
                                             onClick={() => onEdit(emp)}
-                                            className="text-indigo-600 hover:text-indigo-900 font-medium"
+                                            className="text-[#0487D9] hover:text-[#0363A0] font-medium text-sm transition-colors"
                                         >
                                             Edit
                                         </button>
                                         <button
                                             onClick={() => onDelete(emp.employeeId)}
-                                            className="text-red-600 hover:text-red-900 font-medium"
+                                            className="text-red-500 hover:text-red-700 font-medium text-sm transition-colors"
                                         >
                                             Delete
                                         </button>
